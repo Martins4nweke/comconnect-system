@@ -256,6 +256,7 @@ function SchedulerPageContent() {
   const [loadingSchedules, setLoadingSchedules] = useState(false);
   const [busy, setBusy] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [runDueBusy, setRunDueBusy] = useState(false);
   const [note, setNote] = useState("");
 
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRow | null>(
@@ -826,6 +827,31 @@ function SchedulerPageContent() {
     }
   }
 
+  async function runDueMessagesNow() {
+    setNote("");
+    setRunDueBusy(true);
+
+    try {
+      const response = await fetch("/api/cron/send-due", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const json = await response.json();
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to run due scheduled messages.");
+      }
+
+      setNote("Due scheduled messages processed. Refreshing queue...");
+      await loadSchedules();
+    } catch (error: any) {
+      setNote(error?.message ?? "Failed to run due scheduled messages.");
+    } finally {
+      setRunDueBusy(false);
+    }
+  }
+
   async function archiveSchedule(row: ScheduleRow) {
     const confirmed = window.confirm(
       `Archive schedule ${row.message_code ?? ""} for ${
@@ -1391,6 +1417,15 @@ function SchedulerPageContent() {
                 <option value="cancelled">Cancelled</option>
                 <option value="archived">Archived</option>
               </select>
+
+              <button
+                type="button"
+                onClick={runDueMessagesNow}
+                disabled={runDueBusy}
+                className="rounded-xl border-2 border-[#171717] bg-[#FF5C1A] px-3 py-2 text-sm font-black text-[#171717] disabled:opacity-60"
+              >
+                {runDueBusy ? "Running..." : "Run due messages now"}
+              </button>
 
               <button
                 type="button"
