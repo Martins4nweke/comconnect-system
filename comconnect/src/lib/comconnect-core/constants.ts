@@ -1,0 +1,31 @@
+export const DEFAULT_PROJECT_MODULES = [
+  { module_code: "app_messaging", module_name: "App Messaging", enabled: true },
+  { module_code: "education", module_name: "Education Library", enabled: true },
+  { module_code: "questionnaires", module_name: "Questionnaires", enabled: true },
+  { module_code: "consent", module_name: "Consent", enabled: true },
+  { module_code: "health_checkins", module_name: "Health Check-ins", enabled: true },
+  { module_code: "appointments", module_name: "Appointments", enabled: true },
+  { module_code: "referrals", module_name: "Referrals", enabled: true },
+  { module_code: "help_requests", module_name: "Help Requests", enabled: true },
+  { module_code: "chat", module_name: "Chat / Replies", enabled: true },
+  { module_code: "push_notifications", module_name: "Push Notifications", enabled: true },
+  { module_code: "sms_fallback", module_name: "SMS Fallback", enabled: true },
+  { module_code: "voice_fallback", module_name: "Voice Fallback", enabled: true },
+  { module_code: "whatsapp_optional", module_name: "Optional WhatsApp", enabled: false },
+  { module_code: "reports", module_name: "Reports", enabled: true },
+  { module_code: "exports", module_name: "Exports", enabled: true },
+  { module_code: "external_api", module_name: "External API", enabled: false },
+] as const;
+
+export const DEFAULT_CHANNEL_SETTINGS = {
+  primary_channel: "app",
+  fallback_order: ["sms", "voice"],
+  push_enabled: true,
+  sms_enabled: true,
+  voice_enabled: true,
+  whatsapp_enabled: false,
+  email_enabled: false,
+  app_open_timeout_hours: 24,
+  urgent_sms_immediate: true,
+  urgent_voice_immediate: true,
+};

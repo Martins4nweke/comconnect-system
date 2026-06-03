@@ -1,0 +1,31 @@
+-- Optional Phase 3 demo seed.
+-- Replace IDs with values from your own database.
+
+-- Example observation type:
+-- insert into public.project_observation_types (
+--   organisation_id, project_id, code, name, description, field_schema
+-- )
+-- values (
+--   '<organisation_id>',
+--   '<project_id>',
+--   'pain_score',
+--   'Pain Score',
+--   'Generic project-specific pain score check-in',
+--   '{"fields":[{"name":"pain","label":"Pain level","type":"number","unit":"0-10","required":true}]}'::jsonb
+-- );
+
+-- Example education item:
+-- insert into public.education_items (
+--   organisation_id, project_id, title, description, category, language, status, text_content, published_at
+-- )
+-- values (
+--   '<organisation_id>',
+--   '<project_id>',
+--   'Welcome to the programme',
+--   'Low-data welcome content',
+--   'welcome',
+--   'en',
+--   'published',
+--   'Welcome. Please read this message and complete your first check-in.',
+--   now()
+-- );

@@ -1,0 +1,27 @@
+-- Optional Phase 2 demo message seed.
+-- Replace the IDs below with real IDs from your Phase 1 demo data.
+
+-- insert into public.app_messages (
+--   organisation_id,
+--   project_id,
+--   participant_id,
+--   sender_type,
+--   sender_display_name,
+--   sender_role,
+--   title,
+--   body,
+--   category,
+--   priority
+-- )
+-- values (
+--   '<organisation_id>',
+--   '<project_id>',
+--   '<participant_id>',
+--   'study_team',
+--   'ComConnect Study Team',
+--   'Research + Care Team',
+--   'Welcome to ComConnect',
+--   'This is your first app message. Please open and reply to test the participant app API.',
+--   'welcome',
+--   'normal'
+-- );
