@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 type Channel = "sms" | "whatsapp" | "voice" | "app_push";
@@ -218,7 +218,7 @@ function schedulerHref({
   return `/scheduler?${params.toString()}`;
 }
 
-export default function MessagesPage() {
+function MessagesPageContent() {
   const searchParams = useSearchParams();
   const participantId = searchParams.get("participant_id");
   const participantCode = searchParams.get("participant_code");
@@ -964,5 +964,13 @@ export default function MessagesPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-[#EEF3FB] p-4 md:p-6" />}>
+      <MessagesPageContent />
+    </Suspense>
   );
 }
