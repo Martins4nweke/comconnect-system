@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 type Channel = "app" | "sms" | "voice" | "whatsapp";
@@ -216,7 +216,7 @@ function normaliseChannel(value?: string | null): Channel {
   return "app";
 }
 
-export default function SchedulerPage() {
+function SchedulerPageContent() {
   const searchParams = useSearchParams();
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1521,5 +1521,13 @@ export default function SchedulerPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function SchedulerPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-[#EEF3FB] p-4 md:p-6" />}>
+      <SchedulerPageContent />
+    </Suspense>
   );
 }
