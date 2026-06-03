@@ -832,10 +832,14 @@ function SchedulerPageContent() {
     setRunDueBusy(true);
 
     try {
-      const response = await fetch("/api/cron/send-due", {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await fetch("/api/communication/send-due", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({}),
+  cache: "no-store",
+});
 
       const json = await response.json();
 
