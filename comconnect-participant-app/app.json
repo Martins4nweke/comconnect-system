@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "ComConnect Participant",
+    "slug": "comconnect-participant",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "jsEngine": "hermes",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.comconnect.participant",
+      "permissions": [
+        "INTERNET"
+      ],
+      "usesCleartextTraffic": true,
+      "jsEngine": "hermes"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.comconnect.participant"
+    },
+    "extra": {
+      "appRole": "participant",
+      "eas": {
+        "projectId": "9892b73d-abfd-40a0-90ff-71db42cd9b7b"
+      }
+    },
+    "owner": "rm221"
+  }
+}
