@@ -242,7 +242,7 @@ export async function startVoiceCall(payload: VoicePayload) {
       return {
         ok,
         provider,
-        status: ok ? "sent" : "failed",
+        status: ok ? "submitted_to_provider" : "failed",
         provider_message_id: extractInfobipVoiceMessageId(json),
         provider_bulk_id: extractInfobipVoiceBulkId(json),
         error: ok ? null : getInfobipVoiceError(json, res.status),
