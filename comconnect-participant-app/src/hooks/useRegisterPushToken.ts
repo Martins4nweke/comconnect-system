@@ -8,18 +8,31 @@ export function useRegisterPushToken() {
 
   useEffect(() => {
     async function run() {
-      if (!token) return;
+      if (!token) {
+        console.log("Push registration skipped: participant is not logged in.");
+        return;
+      }
+
+      console.log("Starting push token registration...");
 
       const result = await getExpoPushTokenIfAllowed();
-      if (!result.ok || !result.token) return;
+
+      console.log("Push permission/token result:", result);
+
+      if (!result.ok || !result.token) {
+        console.log("Push token not available.");
+        return;
+      }
 
       try {
-        await registerPushToken({
+        const response = await registerPushToken({
           push_token: result.token,
           push_provider: "expo",
         });
-      } catch {
-        // Do not block app usage if token registration fails.
+
+        console.log("Push token registered with backend:", response);
+      } catch (error) {
+        console.log("Push token registration failed:", error);
       }
     }
 
