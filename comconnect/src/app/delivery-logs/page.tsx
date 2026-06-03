@@ -11,9 +11,9 @@ type DeliveryLog = {
   provider?: string | null;
   provider_message_id?: string | null;
   status?: string | null;
-failure_reason?: string | null;
-provider_status?: string | null;
-phone_number?: string | null;
+  failure_reason?: string | null;
+  provider_status?: string | null;
+  phone_number?: string | null;
   error_message?: string | null;
   request_payload?: any;
   response_payload?: any;
@@ -55,19 +55,70 @@ function participantLabel(row: DeliveryLog) {
 }
 
 function statusClass(status?: string | null) {
-  if (status === "sent" || status === "delivered" || status === "completed") {
+  const text = String(status ?? "").toLowerCase();
+
+  if (
+    ["sent", "delivered", "completed", "published", "submitted_to_provider"].includes(
+      text
+    )
+  ) {
     return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
 
-  if (status === "failed" || status === "error") {
+  if (
+    text === "failed" ||
+    text === "error" ||
+    text === "expired" ||
+    text.includes("reject")
+  ) {
     return "bg-red-50 text-red-700 border-red-200";
   }
 
-  if (status === "pending" || status === "queued") {
+  if (
+    text === "pending" ||
+    text === "queued" ||
+    text === "provider_pending" ||
+    text.includes("enroute")
+  ) {
     return "bg-orange-50 text-orange-700 border-orange-200";
   }
 
   return "bg-slate-50 text-slate-700 border-slate-200";
+}
+
+function statusLabel(status?: string | null) {
+  const text = String(status ?? "").trim();
+
+  if (!text) return "—";
+  if (text === "submitted_to_provider") return "submitted to provider";
+  if (text === "provider_pending") return "provider pending";
+  if (text === "published") return "published to app";
+  return text;
+}
+
+function channelLabel(row: DeliveryLog) {
+  if (row.channel === "app") return "App inbox";
+  if (row.channel === "push") return "Push notification";
+  if (row.channel === "sms") return "SMS";
+  if (row.channel === "voice") return "Voice";
+  if (row.channel === "whatsapp") return "WhatsApp";
+  return row.channel ?? "—";
+}
+
+function deliveryNote(row: DeliveryLog) {
+  if (row.channel === "app" && row.provider === "app_inbox") {
+    return "Message is available inside the participant app.";
+  }
+
+  if (row.channel === "push" && row.status === "failed") {
+    return "Phone alert failed, but app inbox delivery may still be available.";
+  }
+
+  if (row.channel === "voice" && row.status === "submitted_to_provider") {
+    return "Voice request submitted; awaiting provider final status.";
+  }
+
+  return "";
 }
 
 export default function DeliveryLogsPage() {
@@ -169,9 +220,11 @@ export default function DeliveryLogsPage() {
                 className="rounded-xl border-2 border-slate-200 px-3 py-2 text-sm font-bold"
               >
                 <option value="">All channels</option>
-                <option value="push">Push</option>
+                <option value="app">App inbox</option>
+                <option value="push">Push notification</option>
                 <option value="sms">SMS</option>
                 <option value="voice">Voice</option>
+                <option value="whatsapp">WhatsApp</option>
               </select>
 
               <select
@@ -184,7 +237,11 @@ export default function DeliveryLogsPage() {
                 <option value="queued">Queued</option>
                 <option value="sent">Sent</option>
                 <option value="delivered">Delivered</option>
+                <option value="published">Published to app</option>
+                <option value="submitted_to_provider">Submitted to provider</option>
+                <option value="provider_pending">Provider pending</option>
                 <option value="completed">Completed</option>
+                <option value="expired">Expired</option>
                 <option value="failed">Failed</option>
               </select>
 
@@ -266,15 +323,20 @@ export default function DeliveryLogsPage() {
                         </td>
 
                         <td className="px-4 py-3 font-black text-slate-700">
-                          {row.channel ?? "—"}
+                          <p>{channelLabel(row)}</p>
+                          {deliveryNote(row) ? (
+                            <p className="mt-1 max-w-[220px] text-xs font-semibold text-slate-500">
+                              {deliveryNote(row)}
+                            </p>
+                          ) : null}
                         </td>
 
                         <td className="px-4 py-3 font-bold text-slate-700">
-  <p>{row.provider ?? "—"}</p>
-  <p className="text-xs text-slate-500">
-    {row.provider_status ?? row.provider_message_id ?? ""}
-  </p>
-</td>
+                          <p>{row.provider ?? "—"}</p>
+                          <p className="text-xs text-slate-500">
+                            {row.provider_status ?? row.provider_message_id ?? ""}
+                          </p>
+                        </td>
 
                         <td className="px-4 py-3">
                           <span
@@ -282,14 +344,16 @@ export default function DeliveryLogsPage() {
                               row.status
                             )}`}
                           >
-                            {row.status ?? "—"}
+                            {statusLabel(row.status)}
                           </span>
                         </td>
 
                         <td className="px-4 py-3 text-slate-700">
                           <p className="max-w-md truncate text-xs font-semibold">
                             {row.request_payload?.message ??
+                              row.request_payload?.message_body ??
                               row.request_payload?.body ??
+                              row.request_payload?.text ??
                               row.request_payload?.reason ??
                               "—"}
                           </p>
@@ -307,8 +371,9 @@ export default function DeliveryLogsPage() {
           </div>
 
           <p className="mt-3 text-xs font-bold text-slate-500">
-            This page reads from communication_delivery_events. It will populate
-            after send-due processes push/SMS/voice delivery attempts.
+            This page reads from communication_delivery_events. App inbox delivery
+            and push notification attempts are shown separately so a missing push
+            token does not hide successful app inbox delivery.
           </p>
         </section>
       </div>
