@@ -900,25 +900,36 @@ function SchedulerPageContent() {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          {channelCards.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => {
-                setChannel(item.key);
-                createManualSchedule(item.key);
-              }}
-              disabled={busy}
-              className="rounded-[1.5rem] border-2 border-[#171717] bg-white p-5 text-left shadow-[3px_3px_0_#171717] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_#171717] disabled:opacity-60"
-            >
-              <p className="text-sm font-black text-[#FF5C1A]">{item.title}</p>
-              <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
-                {item.description}
-              </p>
-            </button>
-          ))}
-        </section>
+<section className="grid gap-4 md:grid-cols-3">
+  {channelCards.map((item) => {
+    const isSelected = channel === item.key;
+
+    return (
+      <button
+        key={item.key}
+        type="button"
+        onClick={() => {
+          setChannel(item.key);
+          setNote(`${item.title} selected. Complete the form below, then click Create schedule.`);
+        }}
+        disabled={busy}
+        className={`rounded-[1.5rem] border-2 border-[#171717] p-5 text-left shadow-[3px_3px_0_#171717] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_#171717] disabled:opacity-60 ${
+          isSelected ? "bg-[#FFF7F2]" : "bg-white"
+        }`}
+      >
+        <p className="text-sm font-black text-[#FF5C1A]">{item.title}</p>
+        <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
+          {item.description}
+        </p>
+        {isSelected ? (
+          <p className="mt-3 text-xs font-black uppercase text-slate-500">
+            Selected
+          </p>
+        ) : null}
+      </button>
+    );
+  })}
+</section>
 
         {participantId || participantCode ? (
           <section className="rounded-[2rem] border-2 border-[#171717] bg-[#FFF7F2] p-5 shadow-[4px_4px_0_#171717]">
