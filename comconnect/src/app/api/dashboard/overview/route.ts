@@ -22,7 +22,7 @@ function sevenDaysAgoIso() {
 
 function percent(numerator: number, denominator: number) {
   if (!denominator) return 0;
-  return Math.round((numerator / denominator) * 100);
+  return Math.max(0, Math.round((numerator / denominator) * 100));
 }
 
 async function safeCount(params: {
@@ -66,7 +66,7 @@ async function safeCount(params: {
       return {
         ok: false,
         count: 0,
-        error: error.message,
+        error: `${params.table}: ${error.message}`,
       };
     }
 
@@ -79,85 +79,11 @@ async function safeCount(params: {
     return {
       ok: false,
       count: 0,
-      error: error?.message ?? `Failed to count ${params.table}`,
+      error: `${params.table}: ${
+        error?.message ?? `Failed to count ${params.table}`
+      }`,
     };
   }
-}
-
-async function safeRows(params: {
-  table: string;
-  select: string;
-  organisationId?: string;
-  projectId?: string;
-  status?: string;
-  statusColumn?: string;
-  dateColumn?: string;
-  since?: string;
-  orderColumn?: string;
-  limit?: number;
-  extra?: (query: any) => any;
-}) {
-  try {
-    let query = supabaseAdmin
-      .from(params.table)
-      .select(params.select)
-      .limit(params.limit ?? 10);
-
-    if (params.organisationId) {
-      query = query.eq("organisation_id", params.organisationId);
-    }
-
-    if (params.projectId) {
-      query = query.eq("project_id", params.projectId);
-    }
-
-    if (params.status && params.statusColumn) {
-      query = query.eq(params.statusColumn, params.status);
-    }
-
-    if (params.since && params.dateColumn) {
-      query = query.gte(params.dateColumn, params.since);
-    }
-
-    query = query.order(params.orderColumn ?? params.dateColumn ?? "created_at", {
-      ascending: false,
-    });
-
-    if (params.extra) {
-      query = params.extra(query);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return {
-        ok: false,
-        rows: [],
-        error: error.message,
-      };
-    }
-
-    return {
-      ok: true,
-      rows: data ?? [],
-      error: null,
-    };
-  } catch (error: any) {
-    return {
-      ok: false,
-      rows: [],
-      error: error?.message ?? `Failed to load ${params.table}`,
-    };
-  }
-}
-
-function extractParticipantLabel(row: any) {
-  return (
-    row?.participants?.display_name ??
-    row?.participants?.participant_code ??
-    row?.participant_code ??
-    "Participant"
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -188,7 +114,7 @@ export async function GET(req: NextRequest) {
       referralsOpen,
       educationRecent,
       questionnaireRecent,
-      chatRecent,
+      chatToday,
     ] = await Promise.all([
       safeCount({
         table: "participants",
@@ -274,7 +200,8 @@ export async function GET(req: NextRequest) {
         table: "voice_call_tasks",
         organisationId,
         projectId,
-        extra: (query) => query.or("status.eq.pending,status.eq.scheduled,status.eq.sent"),
+        extra: (query) =>
+          query.or("status.eq.pending,status.eq.scheduled,status.eq.sent"),
       }),
 
       safeCount({
@@ -309,14 +236,16 @@ export async function GET(req: NextRequest) {
         table: "appointments",
         organisationId,
         projectId,
-        extra: (query) => query.or("status.eq.pending,status.eq.scheduled,status.eq.open"),
+        extra: (query) =>
+          query.or("status.eq.pending,status.eq.scheduled,status.eq.open"),
       }),
 
       safeCount({
         table: "referrals",
         organisationId,
         projectId,
-        extra: (query) => query.or("status.eq.pending,status.eq.open,status.eq.active"),
+        extra: (query) =>
+          query.or("status.eq.pending,status.eq.open,status.eq.active"),
       }),
 
       safeCount({
@@ -343,53 +272,6 @@ export async function GET(req: NextRequest) {
         since: today,
       }),
     ]);
-
-    const [recentInbox, recentFailures, recentHealth, recentChat] =
-      await Promise.all([
-        safeRows({
-          table: "inbox_items",
-          select:
-            "id, title, summary, source_type, priority, status, participant_id, created_at, participants(participant_code, display_name)",
-          organisationId,
-          projectId,
-          orderColumn: "created_at",
-          limit: 8,
-        }),
-
-        safeRows({
-          table: "communication_delivery_events",
-          select:
-            "id, participant_id, channel, provider, status, provider_status, failure_reason, error_message, created_at",
-          organisationId,
-          projectId,
-          orderColumn: "created_at",
-          limit: 8,
-          extra: (query) =>
-            query.or(
-              "status.eq.failed,status.eq.expired,status.eq.undeliverable,status.eq.error"
-            ),
-        }),
-
-        safeRows({
-          table: "health_observations",
-          select:
-            "id, participant_id, observation_type, systolic, diastolic, value_text, alert_level, submitted_at, created_at, participants(participant_code, display_name)",
-          organisationId,
-          projectId,
-          orderColumn: "submitted_at",
-          limit: 8,
-        }),
-
-        safeRows({
-          table: "chat_messages",
-          select:
-            "id, participant_id, thread_id, sender_type, message_text, payload, created_at, participants(participant_code, display_name)",
-          organisationId,
-          projectId,
-          orderColumn: "created_at",
-          limit: 8,
-        }),
-      ]);
 
     const totalDeliveriesToday = deliveryToday.count;
     const failedDeliveriesToday = deliveryFailedToday.count;
@@ -441,7 +323,7 @@ export async function GET(req: NextRequest) {
       ),
       voice_pending: voicePending.count,
       voice_failed: voiceFailed.count,
-      chat_messages_today: chatRecent.count,
+      chat_messages_today: chatToday.count,
     };
 
     const research = {
@@ -462,20 +344,19 @@ export async function GET(req: NextRequest) {
       participantsToday.error,
       inboxOpen.error,
       inboxHigh.error,
+      inboxToday.error,
       deliveryToday.error,
       deliveryFailedToday.error,
+      deliverySentToday.error,
       voicePending.error,
+      voiceFailed.error,
       healthToday.error,
       highBpRecent.error,
       appointmentsOpen.error,
       referralsOpen.error,
       educationRecent.error,
       questionnaireRecent.error,
-      chatRecent.error,
-      recentInbox.error,
-      recentFailures.error,
-      recentHealth.error,
-      recentChat.error,
+      chatToday.error,
     ].filter(Boolean);
 
     return ok({
@@ -494,53 +375,6 @@ export async function GET(req: NextRequest) {
       },
       research,
       care,
-      recent: {
-        inbox: recentInbox.rows.map((row: any) => ({
-          id: row.id,
-          title: row.title,
-          summary: row.summary,
-          source_type: row.source_type,
-          priority: row.priority,
-          status: row.status,
-          participant: extractParticipantLabel(row),
-          created_at: row.created_at,
-          href: "/inbox",
-        })),
-        failed_deliveries: recentFailures.rows.map((row: any) => ({
-          id: row.id,
-          participant_id: row.participant_id,
-          channel: row.channel,
-          provider: row.provider,
-          status: row.status,
-          provider_status: row.provider_status,
-          reason: row.failure_reason ?? row.error_message,
-          created_at: row.created_at,
-          href: "/delivery-logs",
-        })),
-        health: recentHealth.rows.map((row: any) => ({
-          id: row.id,
-          participant: extractParticipantLabel(row),
-          observation_type: row.observation_type,
-          systolic: row.systolic,
-          diastolic: row.diastolic,
-          value_text: row.value_text,
-          alert_level: row.alert_level,
-          submitted_at: row.submitted_at ?? row.created_at,
-          href: "/health-checkins",
-        })),
-        chat: recentChat.rows.map((row: any) => ({
-          id: row.id,
-          participant: extractParticipantLabel(row),
-          sender_type: row.sender_type,
-          message_text:
-            row.message_text ??
-            row.payload?.message_text ??
-            row.payload?.message_type ??
-            "Chat message",
-          created_at: row.created_at,
-          href: row.thread_id ? `/chat/${row.thread_id}` : "/chat",
-        })),
-      },
       warnings,
     });
   } catch (error: any) {
