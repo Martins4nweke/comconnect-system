@@ -182,23 +182,26 @@ async function enrichChatMessage(message: any) {
   };
 }
 
-async function enrichThread(thread: any) {
-  const messages = Array.isArray(thread?.chat_messages)
-    ? thread.chat_messages
-    : [];
+async function loadMessagesForThread(threadId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("chat_messages")
+    .select("*")
+    .eq("thread_id", threadId)
+    .order("created_at", { ascending: true });
 
-  const enrichedMessages = await Promise.all(
-    messages
-      .slice()
-      .sort((a: any, b: any) =>
-        String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""))
-      )
-      .map((message: any) => enrichChatMessage(message))
-  );
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return Promise.all((data ?? []).map((message: any) => enrichChatMessage(message)));
+}
+
+async function attachMessagesToThread(thread: any) {
+  const messages = await loadMessagesForThread(thread.id);
 
   return {
     ...thread,
-    chat_messages: enrichedMessages,
+    chat_messages: messages,
   };
 }
 
@@ -207,40 +210,26 @@ export async function GET(req: NextRequest) {
   const participantId = req.nextUrl.searchParams.get("participant_id");
   const threadId = req.nextUrl.searchParams.get("thread_id");
 
-  /*
-    Thread detail mode:
-    Used by /chat/[threadId].
-    In this mode, project_id is not required because the thread ID is already unique.
-  */
   if (threadId) {
-    const { data, error } = await supabaseAdmin
+    const { data: thread, error } = await supabaseAdmin
       .from("chat_threads")
-      .select(
-        "*, participants(participant_code, display_name, phone_number), chat_messages(*)"
-      )
+      .select("*, participants(participant_code, display_name, phone_number)")
       .eq("id", threadId)
       .maybeSingle();
 
     if (error) return fail(error.message, 500);
-    if (!data) return fail("Chat thread not found", 404);
+    if (!thread) return fail("Chat thread not found", 404);
 
-    const enrichedThread = await enrichThread(data);
+    const threadWithMessages = await attachMessagesToThread(thread);
 
-    return ok([enrichedThread]);
+    return ok([threadWithMessages]);
   }
 
-  /*
-    Thread list mode:
-    Used by /chat table.
-    In this mode, project_id is required so we do not load all projects.
-  */
-  if (!projectId) return fail("project_id is required");
+  if (!projectId) return fail("project_id is required", 400);
 
   let query = supabaseAdmin
     .from("chat_threads")
-    .select(
-      "*, participants(participant_code, display_name, phone_number), chat_messages(*)"
-    )
+    .select("*, participants(participant_code, display_name, phone_number)")
     .eq("project_id", projectId)
     .order("updated_at", { ascending: false });
 
@@ -252,18 +241,18 @@ export async function GET(req: NextRequest) {
 
   if (error) return fail(error.message, 500);
 
-  const enrichedThreads = await Promise.all(
-    (data ?? []).map((thread: any) => enrichThread(thread))
+  const threadsWithMessages = await Promise.all(
+    (data ?? []).map((thread: any) => attachMessagesToThread(thread))
   );
 
-  return ok(enrichedThreads);
+  return ok(threadsWithMessages);
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
 
-  if (!body?.project_id) return fail("project_id is required");
-  if (!body?.participant_id) return fail("participant_id is required");
+  if (!body?.project_id) return fail("project_id is required", 400);
+  if (!body?.participant_id) return fail("participant_id is required", 400);
 
   try {
     const participant = await verifyParticipantInProject(

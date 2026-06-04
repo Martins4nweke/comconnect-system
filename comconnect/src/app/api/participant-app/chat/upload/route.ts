@@ -263,24 +263,21 @@ export async function POST(req: NextRequest) {
     };
 
     const { data: message, error: messageError } = await supabaseAdmin
-      .from("chat_messages")
-      .upsert(
-        {
-          organisation_id: auth.context.organisation_id,
-          project_id: auth.context.project_id,
-          thread_id: threadId,
-          participant_id: auth.context.participant_id,
-          sender_type: "participant",
-          local_id: localId,
-          message_text: finalMessageText,
-          payload: messagePayload,
-          created_offline_at: createdOfflineAt,
-          synced_at: now,
-        },
-        { onConflict: "participant_id,local_id" }
-      )
-      .select("*")
-      .single();
+  .from("chat_messages")
+  .insert({
+    organisation_id: auth.context.organisation_id,
+    project_id: auth.context.project_id,
+    thread_id: threadId,
+    participant_id: auth.context.participant_id,
+    sender_type: "participant",
+    local_id: `${localId}:${Date.now()}`,
+    message_text: finalMessageText,
+    payload: messagePayload,
+    created_offline_at: createdOfflineAt,
+    synced_at: now,
+  })
+  .select("*")
+  .single();
 
     if (messageError) {
       return fail(messageError.message, 500);
