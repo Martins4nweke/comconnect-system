@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, apiUpload } from "./client";
 import type { ParticipantConfig, OfflineQueueItem } from "../types";
 
 export type LoginPayload = {
@@ -99,6 +99,34 @@ export async function sendChatMessage(payload: Record<string, unknown>) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function sendChatMedia(payload: {
+  file_uri: string;
+  file_name: string;
+  mime_type: string;
+  media_type: "audio" | "video" | "image";
+  thread_id?: string | null;
+  message_text?: string;
+  local_id?: string;
+}) {
+  const formData = new FormData();
+
+  formData.append("file", {
+    uri: payload.file_uri,
+    name: payload.file_name,
+    type: payload.mime_type,
+  } as any);
+
+  formData.append("media_type", payload.media_type);
+  formData.append("message_text", payload.message_text ?? "");
+  formData.append("local_id", payload.local_id ?? `chat-media:${Date.now()}`);
+
+  if (payload.thread_id) {
+    formData.append("thread_id", payload.thread_id);
+  }
+
+  return apiUpload<any>("/api/participant-app/chat/upload", formData);
 }
 
 export async function markChatRead(

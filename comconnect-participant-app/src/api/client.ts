@@ -52,3 +52,45 @@ export async function apiFetch<T>(
 
   return json.data as T;
 }
+
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData,
+  auth = true
+): Promise<T> {
+  const headers: Record<string, string> = {};
+
+  if (auth) {
+    const token = await getSessionToken();
+
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  }
+
+  const cleanBase = API_BASE_URL.replace(/\/$/, "");
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${cleanBase}${cleanPath}`;
+
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+  } catch {
+    throw new Error(
+      `Network request failed. Could not reach ComConnect at ${API_BASE_URL}. Make sure the backend is reachable.`
+    );
+  }
+
+  const json = await response.json().catch(() => null);
+
+  if (!response.ok || !json?.ok) {
+    throw new Error(json?.error || `Upload failed: ${response.status}`);
+  }
+
+  return json.data as T;
+}
