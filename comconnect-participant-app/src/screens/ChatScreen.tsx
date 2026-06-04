@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Text, TextInput, View } from "react-native";
+import { Audio } from "expo-av";
+import * as ImagePicker from "expo-image-picker";
 import { Screen } from "../components/Screen";
 import { AppButton } from "../components/AppButton";
 import { StatusNotice } from "../components/StatusNotice";
 import { useAppContext } from "../context/AppContext";
 import {
   markChatRead,
+  sendChatMedia,
   sendChatMessage,
 } from "../api/participantAppApi";
 import { enqueueOfflineAction } from "../storage/offlineQueue";
@@ -96,6 +99,32 @@ function isParticipantMessage(item: any) {
     item.direction === "outbound" ||
     item.from_participant === true
   );
+}
+
+function getMediaType(item: any) {
+  return (
+    item.payload?.media_type ??
+    item.payload?.message_type ??
+    item.payload?.media?.media_type ??
+    null
+  );
+}
+
+function getMediaLabel(item: any) {
+  const mediaType = getMediaType(item);
+
+  if (mediaType === "audio") return "Voice note";
+  if (mediaType === "video") return "Video";
+  if (mediaType === "image") return "Image";
+
+  return null;
+}
+
+function fileNameFromUri(uri: string, fallback: string) {
+  const cleanUri = String(uri ?? "");
+  const lastPart = cleanUri.split("/").pop();
+
+  return lastPart || fallback;
 }
 
 function messageStatus(item: any) {
@@ -307,6 +336,8 @@ export function ChatScreen() {
 
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [statusType, setStatusType] = useState<StatusType>("info");
 
@@ -420,6 +451,158 @@ export function ChatScreen() {
     }
   }
 
+  async function sendMediaToChat(params: {
+  uri: string;
+  mediaType: "audio" | "video" | "image";
+  mimeType: string;
+  fileName: string;
+  label: string;
+}) {
+  const sentAt = new Date().toISOString();
+  const localId = `chat-media:${Date.now()}`;
+
+  setMediaBusy(true);
+  setStatusMessage("");
+
+  try {
+    const response = await sendChatMedia({
+      file_uri: params.uri,
+      file_name: params.fileName,
+      mime_type: params.mimeType,
+      media_type: params.mediaType,
+      message_text: `${params.label} sent from participant.`,
+      local_id: localId,
+    });
+
+    const responseData = (response as any)?.data ?? response;
+    const savedMessage = responseData?.message ?? null;
+
+    await addChatMessageToLocalCache(app, {
+      ...(savedMessage ?? {}),
+      id: savedMessage?.id ?? localId,
+      local_id: localId,
+      thread_id: responseData?.thread_id ?? savedMessage?.thread_id ?? null,
+      direction: "outbound",
+      sender_type: "participant",
+      message_text:
+        savedMessage?.message_text ?? `${params.label} sent from participant.`,
+      payload: {
+        ...(savedMessage?.payload ?? {}),
+        message_type: params.mediaType,
+        media_type: params.mediaType,
+        local_uri: params.uri,
+      },
+      status: "sent",
+      read_at: sentAt,
+      seen_at: sentAt,
+      created_at: savedMessage?.created_at ?? sentAt,
+      synced_at: savedMessage?.synced_at ?? sentAt,
+    });
+
+    showStatus(`${params.label} sent successfully.`, "success");
+  } catch {
+    showStatus(
+      `${params.label} could not be sent. Please check your internet and try again.`,
+      "error"
+    );
+  } finally {
+    setMediaBusy(false);
+  }
+}
+
+async function startVoiceRecording() {
+  try {
+    const permission = await Audio.requestPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      showStatus("Microphone permission is required to record voice notes.", "error");
+      return;
+    }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: false,
+    });
+
+    const result = await Audio.Recording.createAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+
+    setRecording(result.recording);
+    showStatus("Recording voice note...", "info");
+  } catch {
+    showStatus("Could not start voice recording.", "error");
+  }
+}
+
+async function stopVoiceRecordingAndSend() {
+  if (!recording) return;
+
+  try {
+    await recording.stopAndUnloadAsync();
+
+    const uri = recording.getURI();
+    setRecording(null);
+
+    if (!uri) {
+      showStatus("Voice note was not saved.", "error");
+      return;
+    }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+    });
+
+    await sendMediaToChat({
+      uri,
+      mediaType: "audio",
+      mimeType: "audio/m4a",
+      fileName: fileNameFromUri(uri, `voice-note-${Date.now()}.m4a`),
+      label: "Voice note",
+    });
+  } catch {
+    setRecording(null);
+    showStatus("Could not send voice note.", "error");
+  }
+}
+
+async function pickVideoAndSend() {
+  try {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      showStatus("Camera permission is required to capture video.", "error");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: false,
+      quality: 0.6,
+      videoMaxDuration: 60,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      return;
+    }
+
+    const asset = result.assets[0];
+
+    await sendMediaToChat({
+      uri: asset.uri,
+      mediaType: "video",
+      mimeType: asset.mimeType ?? "video/mp4",
+      fileName: fileNameFromUri(asset.uri, `chat-video-${Date.now()}.mp4`),
+      label: "Video",
+    });
+  } catch {
+    showStatus("Could not capture or send video.", "error");
+  }
+}
+
   return (
     <Screen title="Chat" subtitle={`To: ${projectName} team`}>
       <StatusNotice message={statusMessage} type={statusType} />
@@ -481,6 +664,7 @@ export function ChatScreen() {
         chatMessages.map((item: any, index: number) => {
           const fromParticipant = isParticipantMessage(item);
           const text = getMessageText(item);
+          const mediaLabel = getMediaLabel(item);
           const time = getMessageTime(item);
           const status = messageStatus(item);
 
@@ -507,15 +691,15 @@ export function ChatScreen() {
               </Text>
 
               <Text
-                style={{
-                  fontWeight: "700",
-                  color: "#334155",
-                  fontSize: 15,
-                  lineHeight: 21,
-                }}
-              >
-                {text}
-              </Text>
+  style={{
+    fontWeight: "700",
+    color: "#334155",
+    fontSize: 15,
+    lineHeight: 21,
+  }}
+>
+  {mediaLabel ? `${mediaLabel}: ${text}` : text}
+</Text>
 
               {time || status ? (
                 <Text
@@ -558,10 +742,26 @@ export function ChatScreen() {
       />
 
       <AppButton
-        label={sending ? "Sending..." : "Send message"}
-        disabled={sending}
-        onPress={send}
-      />
+  label={sending ? "Sending..." : "Send message"}
+  disabled={sending || mediaBusy || Boolean(recording)}
+  onPress={send}
+/>
+
+<View style={{ height: 10 }} />
+
+<AppButton
+  label={recording ? "Stop and send voice note" : "Record voice note"}
+  disabled={sending || mediaBusy}
+  onPress={recording ? stopVoiceRecordingAndSend : startVoiceRecording}
+/>
+
+<View style={{ height: 10 }} />
+
+<AppButton
+  label={mediaBusy ? "Sending media..." : "Capture and send video"}
+  disabled={sending || mediaBusy || Boolean(recording)}
+  onPress={pickVideoAndSend}
+/>
     </Screen>
   );
 }
