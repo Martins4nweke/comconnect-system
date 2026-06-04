@@ -2,9 +2,18 @@ import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 function normaliseChannel(value: unknown) {
-  const text = String(value ?? "app").trim().toLowerCase();
+  const text = cleanText(value).toLowerCase();
 
   if (text === "push" || text === "app_push") return "app";
   if (["app", "sms", "whatsapp", "voice"].includes(text)) return text;
@@ -14,10 +23,10 @@ function normaliseChannel(value: unknown) {
 
 function normaliseAllowedChannels(value: unknown) {
   if (Array.isArray(value)) {
-    return value.map(normaliseChannel).filter(Boolean);
+    return Array.from(new Set(value.map(normaliseChannel).filter(Boolean)));
   }
 
-  const text = String(value ?? "").trim();
+  const text = cleanText(value);
 
   if (text) {
     const channels = text
@@ -25,105 +34,165 @@ function normaliseAllowedChannels(value: unknown) {
       .map((item) => normaliseChannel(item))
       .filter(Boolean);
 
-    return channels.length > 0 ? channels : ["app", "sms", "voice"];
+    return channels.length > 0
+      ? Array.from(new Set(channels))
+      : ["app", "sms", "voice"];
   }
 
   return ["app", "sms", "voice"];
 }
 
-async function resolveProject(body: any) {
-  const projectId = body?.project_id ? String(body.project_id).trim() : "";
-  const projectCode = body?.project_code ? String(body.project_code).trim() : "";
+function canWriteMessages(context: Awaited<ReturnType<typeof getScopedContext>>) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
+
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    ["project_manager", "research_assistant", "data_manager", "developer"].includes(
+      projectRole
+    )
+  );
+}
+
+async function resolveProject(
+  body: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const projectId = cleanText(body?.project_id) || cleanText(context.active_project_id);
+  const projectCode = cleanText(body?.project_code);
+
+  let query = supabaseAdmin
+    .from("projects")
+    .select("id, organisation_id, project_code")
+    .eq("organisation_id", context.organisation_id)
+    .neq("status", "archived");
 
   if (projectId) {
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .select("id, organisation_id, project_code")
-      .eq("id", projectId)
-      .single();
+    query = query.eq("id", projectId);
+  } else if (projectCode) {
+    query = query.eq("project_code", projectCode);
+  } else {
+    throw new Error("No active project selected.");
+  }
 
-    if (error || !data) throw new Error("Project not found");
-    return data;
+  const { data, error } = await query.maybeSingle();
+
+  if (error || !data) {
+    throw new Error("Project not found or not allowed.");
+  }
+
+  if (!context.allowed_project_ids.includes(data.id)) {
+    throw new Error("You do not have access to this project.");
+  }
+
+  return data;
+}
+
+async function resolveRequestedProjectId(
+  req: NextRequest,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const projectId = cleanText(req.nextUrl.searchParams.get("project_id"));
+  const projectCode = cleanText(req.nextUrl.searchParams.get("project_code"));
+
+  if (projectId) {
+    if (!context.allowed_project_ids.includes(projectId)) {
+      throw new Error("You do not have access to this project.");
+    }
+
+    return projectId;
   }
 
   if (projectCode) {
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .select("id, organisation_id, project_code")
-      .eq("project_code", projectCode)
-      .single();
+    const project = context.allowed_projects.find(
+      (item: any) => item.project_code === projectCode
+    );
 
-    if (error || !data) throw new Error("Project code not found");
-    return data;
+    if (!project?.id) {
+      throw new Error("Project code not found or not allowed.");
+    }
+
+    return project.id;
   }
 
-  throw new Error("project_id or project_code is required");
+  return cleanText(context.active_project_id);
 }
 
 export async function GET(req: NextRequest) {
-  const projectId = req.nextUrl.searchParams.get("project_id");
-  const projectCode = req.nextUrl.searchParams.get("project_code");
-  const status = req.nextUrl.searchParams.get("status");
-  const q = req.nextUrl.searchParams.get("q");
+  try {
+    const context = await getScopedContext(req);
 
-  let resolvedProjectId = projectId;
+    const status = req.nextUrl.searchParams.get("status");
+    const q = req.nextUrl.searchParams.get("q");
 
-  if (!resolvedProjectId && projectCode) {
-    const { data: project, error } = await supabaseAdmin
-      .from("projects")
-      .select("id")
-      .eq("project_code", projectCode)
-      .single();
+    const resolvedProjectId = await resolveRequestedProjectId(req, context);
 
-    if (error || !project) return fail("Project code not found", 404);
+    let query = supabaseAdmin
+      .from("communication_messages")
+      .select("*")
+      .eq("organisation_id", context.organisation_id)
+      .order("created_at", { ascending: false })
+      .limit(100);
 
-    resolvedProjectId = project.id;
+    if (resolvedProjectId) {
+      query = query.eq("project_id", resolvedProjectId);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
+    }
+
+    if (status) query = query.eq("status", status);
+
+    if (q) {
+      query = query.or(
+        `message_code.ilike.%${q}%,message_title.ilike.%${q}%,message_body.ilike.%${q}%,category.ilike.%${q}%`
+      );
+    }
+
+    const { data, error } = await query;
+
+    if (error) return fail(error.message, 500);
+
+    return ok(data ?? []);
+  } catch (error: any) {
+    return fail(error?.message ?? "Failed to load messages", 500);
   }
-
-  let query = supabaseAdmin
-    .from("communication_messages")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (resolvedProjectId) query = query.eq("project_id", resolvedProjectId);
-  if (status) query = query.eq("status", status);
-
-  if (q) {
-    query = query.or(
-      `message_code.ilike.%${q}%,message_title.ilike.%${q}%,message_body.ilike.%${q}%,category.ilike.%${q}%`
-    );
-  }
-
-  const { data, error } = await query;
-
-  if (error) return fail(error.message, 500);
-
-  return ok(data ?? []);
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-
-  if (!body?.message_code) return fail("message_code is required");
-  if (!body?.message_title && !body?.title) return fail("message_title is required");
-  if (!body?.message_body && !body?.body) return fail("message_body is required");
-
   try {
-    const project = await resolveProject(body);
+    const context = await getScopedContext(req);
 
-    const sourceType = String(body.source_type ?? "manual_message");
+    if (!canWriteMessages(context)) {
+      return fail("You do not have permission to create messages.", 403);
+    }
+
+    const body = await req.json().catch(() => null);
+
+    if (!body?.message_code) return fail("message_code is required", 400);
+    if (!body?.message_title && !body?.title) {
+      return fail("message_title is required", 400);
+    }
+    if (!body?.message_body && !body?.body) {
+      return fail("message_body is required", 400);
+    }
+
+    const project = await resolveProject(body, context);
+
+    const sourceType = cleanText(body.source_type) || "manual_message";
     const isAppOnly = ["questionnaire", "education", "education_video"].includes(
       sourceType
     );
 
     const payload = {
-      organisation_id: project.organisation_id,
+      organisation_id: context.organisation_id,
       project_id: project.id,
 
-      message_code: String(body.message_code).trim(),
-      message_title: String(body.message_title ?? body.title).trim(),
-      message_body: String(body.message_body ?? body.body).trim(),
+      message_code: cleanText(body.message_code),
+      message_title: cleanText(body.message_title ?? body.title),
+      message_body: cleanText(body.message_body ?? body.body),
 
       channel: isAppOnly ? "app" : normaliseChannel(body.channel),
       language: body.language ?? "en",
