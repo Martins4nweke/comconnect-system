@@ -81,6 +81,26 @@ export async function POST(req: NextRequest) {
     if (eventError) return fail(eventError.message, 500);
   }
 
+  const { error: inboxError } = await supabaseAdmin
+    .from("inbox_items")
+    .insert({
+      organisation_id: auth.context.organisation_id,
+      project_id: auth.context.project_id,
+      participant_id: auth.context.participant_id,
+      source_type: "app_message_reply",
+      source_id: data.id,
+      title: "New message reply",
+      summary:
+        replyText ??
+        (body?.reply_payload
+          ? "Participant submitted a structured reply."
+          : "Participant replied to a message."),
+      priority: "normal",
+      status: "open",
+    });
+
+  if (inboxError) return fail(inboxError.message, 500);
+
   await recordParticipantActivity(
     auth.context,
     "message_replied",
