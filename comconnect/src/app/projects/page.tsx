@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { VerticalAppShell } from "@/components/comconnect-ui/VerticalAppShell";
 
 type ProjectRow = {
@@ -15,6 +20,21 @@ type ProjectRow = {
   app_access_enabled?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
+  role?: string | null;
+};
+
+type CurrentContext = {
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_id?: string | null;
+  active_project_name?: string | null;
+  project_role?: string | null;
+  allowed_projects?: ProjectRow[];
+  can_manage_projects?: boolean;
+  can_create_projects?: boolean;
+  can_archive_projects?: boolean;
+  dev_fallback?: boolean;
 };
 
 function cleanText(value: unknown) {
@@ -49,9 +69,15 @@ function statusClass(status?: string | null) {
   return "bg-slate-50 text-slate-700 border-slate-200";
 }
 
+function projectOptionLabel(project: ProjectRow) {
+  const code = cleanText(project.project_code);
+  return code ? `${project.name} (${code})` : project.name;
+}
+
 export default function ProjectsPage() {
-  const [organisationId, setOrganisationId] = useState("");
+  const [context, setContext] = useState<CurrentContext | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [note, setNote] = useState("");
@@ -63,39 +89,121 @@ export default function ProjectsPage() {
   const [defaultLanguage, setDefaultLanguage] = useState("en");
   const [appAccessEnabled, setAppAccessEnabled] = useState(true);
 
-  const canLoad = cleanText(organisationId).length > 0;
+  const organisationId = cleanText(context?.organisation_id);
+  const canManageProjects = Boolean(context?.can_manage_projects);
+  const canCreateProjects = Boolean(context?.can_create_projects);
+  const canArchiveProjects = Boolean(context?.can_archive_projects);
+
+  const selectedProject = useMemo(() => {
+    return projects.find((project) => project.id === selectedProjectId) ?? null;
+  }, [projects, selectedProjectId]);
 
   const filteredProjects = useMemo(() => {
-    return projects;
-  }, [projects]);
+    const search = cleanText(q).toLowerCase();
 
-  async function loadProjects() {
-    if (!canLoad) {
-      setNote("Enter an organisation_id first. Later this will come from the logged-in organisation context.");
-      return;
+    return projects.filter((project) => {
+      const projectStatus = cleanText(project.status).toLowerCase();
+
+      if (status !== "all" && projectStatus !== status) {
+        return false;
+      }
+
+      if (!search) return true;
+
+      return [
+        project.name,
+        project.project_code,
+        project.description,
+        project.role,
+      ]
+        .map((value) => cleanText(value).toLowerCase())
+        .some((value) => value.includes(search));
+    });
+  }, [projects, q, status]);
+
+  async function fetchContext(projectId?: string) {
+    const params = new URLSearchParams();
+
+    if (projectId) {
+      params.set("project_id", projectId);
     }
 
+    const url = params.toString()
+      ? `/api/context/current?${params.toString()}`
+      : "/api/context/current";
+
+    const response = await fetch(url, {
+      cache: "no-store",
+    });
+
+    const json = await response.json().catch(() => null);
+
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error ?? "Failed to load organisation context.");
+    }
+
+    return json.data as CurrentContext;
+  }
+
+  async function fetchOrganisationProjects(currentContext: CurrentContext) {
+    const currentOrganisationId = cleanText(currentContext.organisation_id);
+
+    if (!currentOrganisationId) {
+      return currentContext.allowed_projects ?? [];
+    }
+
+    if (!currentContext.can_manage_projects) {
+      return currentContext.allowed_projects ?? [];
+    }
+
+    const params = new URLSearchParams();
+    params.set("organisation_id", currentOrganisationId);
+
+    if (status && status !== "all") {
+      params.set("status", status);
+    }
+
+    if (q) {
+      params.set("q", q);
+    }
+
+    const response = await fetch(`/api/projects?${params.toString()}`, {
+      cache: "no-store",
+    });
+
+    const json = await response.json().catch(() => null);
+
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error ?? "Failed to load organisation projects.");
+    }
+
+    return json.data?.rows ?? [];
+  }
+
+  async function loadContextAndProjects(projectId?: string) {
     setLoading(true);
     setNote("");
 
     try {
-      const params = new URLSearchParams();
-      params.set("organisation_id", organisationId);
+      const currentContext = await fetchContext(projectId);
+      const loadedProjects = await fetchOrganisationProjects(currentContext);
 
-      if (q) params.set("q", q);
-      if (status) params.set("status", status);
+      setContext(currentContext);
+      setProjects(loadedProjects);
 
-      const response = await fetch(`/api/projects?${params.toString()}`, {
-        cache: "no-store",
-      });
+      const activeId =
+        projectId ||
+        currentContext.active_project_id ||
+        loadedProjects[0]?.id ||
+        "";
 
-      const json = await response.json().catch(() => null);
+      setSelectedProjectId(activeId);
 
-      if (!response.ok || !json?.ok) {
-        throw new Error(json?.error ?? "Failed to load projects.");
+      if (currentContext.dev_fallback) {
+        setNote(
+          "Development fallback is active. Later, this organisation/project will come from the logged-in user session."
+        );
       }
-
-      setProjects(json.data?.rows ?? []);
     } catch (error: any) {
       setNote(error?.message ?? "Failed to load projects.");
     } finally {
@@ -103,11 +211,47 @@ export default function ProjectsPage() {
     }
   }
 
-  async function createProject(event: React.FormEvent) {
+  async function loadProjectsOnly() {
+    if (!context) {
+      await loadContextAndProjects();
+      return;
+    }
+
+    setLoading(true);
+    setNote("");
+
+    try {
+      const loadedProjects = await fetchOrganisationProjects(context);
+      setProjects(loadedProjects);
+
+      if (
+        selectedProjectId &&
+        !loadedProjects.some((project: ProjectRow) => project.id === selectedProjectId)
+      ) {
+        setSelectedProjectId(loadedProjects[0]?.id ?? "");
+      }
+    } catch (error: any) {
+      setNote(error?.message ?? "Failed to load projects.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleProjectChange(projectId: string) {
+    setSelectedProjectId(projectId);
+    await loadContextAndProjects(projectId);
+  }
+
+  async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!canLoad) {
-      setNote("organisation_id is required to create a project.");
+    if (!canCreateProjects) {
+      setNote("You do not have permission to create projects.");
+      return;
+    }
+
+    if (!organisationId) {
+      setNote("No organisation context was found.");
       return;
     }
 
@@ -142,13 +286,15 @@ export default function ProjectsPage() {
         throw new Error(json?.error ?? "Failed to create project.");
       }
 
+      const createdProject = json.data as ProjectRow;
+
       setName("");
       setProjectCode("");
       setDescription("");
       setDefaultLanguage("en");
       setAppAccessEnabled(true);
 
-      await loadProjects();
+      await loadContextAndProjects(createdProject.id);
 
       setNote("Project created successfully.");
     } catch (error: any) {
@@ -159,7 +305,14 @@ export default function ProjectsPage() {
   }
 
   async function archiveProject(projectId: string) {
-    const confirmed = window.confirm("Archive this project? Existing data will remain but the project status will become archived.");
+    if (!canArchiveProjects) {
+      setNote("You do not have permission to archive projects.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Archive this project? Existing data will remain but the project status will become archived."
+    );
 
     if (!confirmed) return;
 
@@ -177,7 +330,10 @@ export default function ProjectsPage() {
         throw new Error(json?.error ?? "Failed to archive project.");
       }
 
-      await loadProjects();
+      await loadContextAndProjects(
+        selectedProjectId === projectId ? undefined : selectedProjectId
+      );
+
       setNote("Project archived.");
     } catch (error: any) {
       setNote(error?.message ?? "Failed to archive project.");
@@ -187,18 +343,23 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
-    if (canLoad) {
-      loadProjects();
+    void loadContextAndProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (context) {
+      void loadProjectsOnly();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organisationId, status]);
+  }, [status]);
 
   return (
     <VerticalAppShell
-      organisationRole="organisation_admin"
-      projectRole="project_manager"
-      organisationName="Current organisation"
-      projectName="Projects"
+      organisationRole={context?.organisation_role ?? "organisation_admin"}
+      projectRole={context?.project_role ?? "project_manager"}
+      organisationName={context?.organisation_name ?? "Current organisation"}
+      projectName={selectedProject?.name ?? context?.active_project_name ?? "Projects"}
     >
       <main className="px-4 py-4 lg:px-5">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -210,7 +371,8 @@ export default function ProjectsPage() {
               Projects
             </h1>
             <p className="mt-1 max-w-3xl text-sm font-semibold text-slate-600">
-              Create and manage multiple projects within one organisation.
+              Manage organisation projects and switch between the projects you
+              are allowed to access.
             </p>
           </div>
 
@@ -229,156 +391,217 @@ export default function ProjectsPage() {
         ) : null}
 
         <section className="mb-4 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-4">
-            <label className="block md:col-span-2">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <p className="text-xs font-black uppercase text-slate-500">
+                Organisation
+              </p>
+              <p className="mt-1 text-sm font-black text-slate-950">
+                {context?.organisation_name ?? "Loading organisation..."}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Role: {context?.organisation_role ?? "—"}
+              </p>
+            </div>
+
+            <label className="block">
               <span className="text-xs font-black uppercase text-slate-500">
-                Organisation ID
+                Project dropdown
               </span>
-              <input
-                value={organisationId}
-                onChange={(event) => setOrganisationId(event.target.value)}
-                placeholder="Paste organisation_id"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
-              />
+              <select
+                value={selectedProjectId}
+                onChange={(event) => void handleProjectChange(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+              >
+                {projects.length === 0 ? (
+                  <option value="">No project available</option>
+                ) : (
+                  projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {projectOptionLabel(project)}
+                    </option>
+                  ))
+                )}
+              </select>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                {canManageProjects
+                  ? "Organisation admin view: all organisation projects."
+                  : "Project member view: assigned projects only."}
+              </p>
             </label>
 
             <label className="block">
               <span className="text-xs font-black uppercase text-slate-500">
-                Status
+                Status filter
               </span>
               <select
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
               >
-                <option value="all">All</option>
+                <option value="all">All allowed projects</option>
                 <option value="active">Active</option>
                 <option value="paused">Paused</option>
                 <option value="archived">Archived</option>
               </select>
             </label>
+          </div>
 
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Search
-              </span>
-              <div className="mt-1 flex gap-2">
-                <input
-                  value={q}
-                  onChange={(event) => setQ(event.target.value)}
-                  placeholder="Name/code"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
-                />
-                <button
-                  type="button"
-                  onClick={loadProjects}
-                  className="rounded-xl bg-[#F26A21] px-3 py-2 text-xs font-black text-white"
-                >
-                  Load
-                </button>
-              </div>
-            </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void loadProjectsOnly();
+                }
+              }}
+              placeholder="Search project name, code or role..."
+              className="min-w-[220px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+            />
+
+            <button
+              type="button"
+              onClick={loadProjectsOnly}
+              disabled={loading}
+              className="rounded-xl bg-[#F26A21] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+            >
+              {loading ? "Loading..." : "Search"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setQ("");
+                void loadContextAndProjects(selectedProjectId);
+              }}
+              disabled={loading}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21] disabled:opacity-50"
+            >
+              Refresh
+            </button>
           </div>
         </section>
 
-        <section className="mb-4 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
-          <h2 className="text-base font-black text-slate-950">
-            Create project
-          </h2>
+        {canCreateProjects ? (
+          <section className="mb-4 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
+            <h2 className="text-base font-black text-slate-950">
+              Create project
+            </h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              New projects will be created under{" "}
+              {context?.organisation_name ?? "this organisation"}.
+            </p>
 
-          <form onSubmit={createProject} className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Project name
-              </span>
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Durban Hypertension Study"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
-              />
-            </label>
+            <form
+              onSubmit={createProject}
+              className="mt-3 grid gap-3 md:grid-cols-2"
+            >
+              <label className="block">
+                <span className="text-xs font-black uppercase text-slate-500">
+                  Project name
+                </span>
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Durban Hypertension Study"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+                />
+              </label>
 
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Project code
-              </span>
-              <input
-                value={projectCode}
-                onChange={(event) => setProjectCode(event.target.value)}
-                placeholder="DURB_HTN"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
-              />
-            </label>
+              <label className="block">
+                <span className="text-xs font-black uppercase text-slate-500">
+                  Project code
+                </span>
+                <input
+                  value={projectCode}
+                  onChange={(event) => setProjectCode(event.target.value)}
+                  placeholder="DURB_HTN"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+                />
+              </label>
 
-            <label className="block md:col-span-2">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Description
-              </span>
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Brief project description"
-                rows={2}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
-              />
-            </label>
+              <label className="block md:col-span-2">
+                <span className="text-xs font-black uppercase text-slate-500">
+                  Description
+                </span>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Brief project description"
+                  rows={2}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+                />
+              </label>
 
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Default language
-              </span>
-              <select
-                value={defaultLanguage}
-                onChange={(event) => setDefaultLanguage(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-              >
-                <option value="en">English</option>
-                <option value="zu">isiZulu</option>
-              </select>
-            </label>
+              <label className="block">
+                <span className="text-xs font-black uppercase text-slate-500">
+                  Default language
+                </span>
+                <select
+                  value={defaultLanguage}
+                  onChange={(event) => setDefaultLanguage(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                >
+                  <option value="en">English</option>
+                  <option value="zu">isiZulu</option>
+                </select>
+              </label>
 
-            <label className="flex items-center gap-3 pt-6 text-sm font-bold text-slate-700">
-              <input
-                type="checkbox"
-                checked={appAccessEnabled}
-                onChange={(event) => setAppAccessEnabled(event.target.checked)}
-                className="h-4 w-4"
-              />
-              Participant app access enabled
-            </label>
+              <label className="flex items-center gap-3 pt-6 text-sm font-bold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={appAccessEnabled}
+                  onChange={(event) =>
+                    setAppAccessEnabled(event.target.checked)
+                  }
+                  className="h-4 w-4"
+                />
+                Participant app access enabled
+              </label>
 
-            <div className="md:col-span-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="rounded-xl bg-[#F26A21] px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
-              >
-                {loading ? "Saving..." : "Create project"}
-              </button>
-            </div>
-          </form>
-        </section>
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="rounded-xl bg-[#F26A21] px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
+                >
+                  {loading ? "Saving..." : "Create project"}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : (
+          <section className="mb-4 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
+            <h2 className="text-base font-black text-slate-950">
+              Project access
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-slate-600">
+              You can view only the projects where you are an active project
+              member. Contact an organisation admin to create or assign projects.
+            </p>
+          </section>
+        )}
 
         <section className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-black text-slate-950">
-                Organisation projects
+                {canManageProjects ? "Organisation projects" : "My projects"}
               </h2>
               <p className="text-xs font-semibold text-slate-500">
                 {filteredProjects.length} project(s)
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={loadProjects}
-              disabled={loading}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21] disabled:opacity-50"
-            >
-              Refresh
-            </button>
+            {selectedProject ? (
+              <Link
+                href={`/project-settings?project_id=${selectedProject.id}`}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+              >
+                Open selected settings
+              </Link>
+            ) : null}
           </div>
 
           <div className="overflow-x-auto">
@@ -388,6 +611,7 @@ export default function ProjectsPage() {
                   <th className="px-3 py-2 font-black">Project</th>
                   <th className="px-3 py-2 font-black">Code</th>
                   <th className="px-3 py-2 font-black">Status</th>
+                  <th className="px-3 py-2 font-black">Role</th>
                   <th className="px-3 py-2 font-black">Language</th>
                   <th className="px-3 py-2 font-black">App</th>
                   <th className="px-3 py-2 font-black">Created</th>
@@ -399,7 +623,7 @@ export default function ProjectsPage() {
                 {filteredProjects.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-3 py-6 text-center text-sm font-bold text-slate-500"
                     >
                       No projects found.
@@ -409,7 +633,10 @@ export default function ProjectsPage() {
                   filteredProjects.map((project) => (
                     <tr
                       key={project.id}
-                      className="border-b border-slate-50 hover:bg-[#FFF7F2]"
+                      className={[
+                        "border-b border-slate-50 hover:bg-[#FFF7F2]",
+                        project.id === selectedProjectId ? "bg-orange-50" : "",
+                      ].join(" ")}
                     >
                       <td className="px-3 py-3">
                         <p className="font-black text-slate-900">
@@ -432,6 +659,9 @@ export default function ProjectsPage() {
                         </span>
                       </td>
                       <td className="px-3 py-3 font-bold text-slate-700">
+                        {project.role || "—"}
+                      </td>
+                      <td className="px-3 py-3 font-bold text-slate-700">
                         {project.default_language || "—"}
                       </td>
                       <td className="px-3 py-3 font-bold text-slate-700">
@@ -442,13 +672,22 @@ export default function ProjectsPage() {
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleProjectChange(project.id)}
+                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+                          >
+                            Select
+                          </button>
+
                           <Link
                             href={`/project-settings?project_id=${project.id}`}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
                           >
                             Settings
                           </Link>
-                          {project.status !== "archived" ? (
+
+                          {canArchiveProjects && project.status !== "archived" ? (
                             <button
                               type="button"
                               onClick={() => archiveProject(project.id)}

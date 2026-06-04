@@ -4,6 +4,13 @@ import { ok, fail } from "@/lib/comconnect-core/api-response";
 
 export const runtime = "nodejs";
 
+const ORGANISATION_ADMIN_ROLES = new Set([
+  "superadmin",
+  "organisation_admin",
+  "org_admin",
+  "admin",
+]);
+
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -17,6 +24,24 @@ function pickName(row: any) {
     row?.email ??
     "Unnamed"
   );
+}
+
+function isOrganisationAdmin(role?: string | null) {
+  return ORGANISATION_ADMIN_ROLES.has(cleanText(role).toLowerCase());
+}
+
+function projectPayload(project: any, role: string) {
+  return {
+    id: project.id,
+    organisation_id: project.organisation_id,
+    name: project.name,
+    project_code: project.project_code,
+    description: project.description,
+    status: project.status,
+    default_language: project.default_language,
+    app_access_enabled: project.app_access_enabled,
+    role,
+  };
 }
 
 async function getOrganisationById(organisationId: string) {
@@ -59,69 +84,74 @@ async function getMembershipByEmail(email: string) {
   return data;
 }
 
-async function getProjectsForUser(params: {
+async function getAllOrganisationProjects(params: {
   organisationId: string;
-  email?: string;
-  userId?: string;
+  role?: string | null;
 }) {
-  let memberQuery = supabaseAdmin
-    .from("project_members")
-    .select("*, projects(*)")
-    .eq("organisation_id", params.organisationId)
-    .eq("status", "active")
-    .order("created_at", { ascending: true });
-
-  if (params.email) {
-    memberQuery = memberQuery.eq("email", params.email);
-  } else if (params.userId) {
-    memberQuery = memberQuery.eq("user_id", params.userId);
-  } else {
-    memberQuery = memberQuery.limit(0);
-  }
-
-  const { data: memberProjects, error: memberError } = await memberQuery;
-
-  if (memberError) throw new Error(memberError.message);
-
-  const fromMembership = (memberProjects ?? [])
-    .filter((row: any) => row.projects)
-    .map((row: any) => ({
-      id: row.projects.id,
-      organisation_id: row.projects.organisation_id,
-      name: row.projects.name,
-      project_code: row.projects.project_code,
-      description: row.projects.description,
-      status: row.projects.status,
-      default_language: row.projects.default_language,
-      app_access_enabled: row.projects.app_access_enabled,
-      role: row.role ?? "viewer",
-    }));
-
-  if (fromMembership.length > 0) {
-    return fromMembership;
-  }
-
-  const { data: fallbackProjects, error: fallbackError } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("projects")
     .select("*")
     .eq("organisation_id", params.organisationId)
     .neq("status", "archived")
     .order("created_at", { ascending: true })
-    .limit(100);
+    .limit(500);
 
-  if (fallbackError) throw new Error(fallbackError.message);
+  if (error) throw new Error(error.message);
 
-  return (fallbackProjects ?? []).map((project: any) => ({
-    id: project.id,
-    organisation_id: project.organisation_id,
-    name: project.name,
-    project_code: project.project_code,
-    description: project.description,
-    status: project.status,
-    default_language: project.default_language,
-    app_access_enabled: project.app_access_enabled,
-    role: "project_manager",
-  }));
+  return (data ?? []).map((project: any) =>
+    projectPayload(project, params.role || "organisation_admin")
+  );
+}
+
+async function getProjectMemberProjects(params: {
+  organisationId: string;
+  email?: string;
+  userId?: string;
+}) {
+  let query = supabaseAdmin
+    .from("project_members")
+    .select("*, projects(*)")
+    .eq("organisation_id", params.organisationId)
+    .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(500);
+
+  if (params.email) {
+    query = query.eq("email", params.email);
+  } else if (params.userId) {
+    query = query.eq("user_id", params.userId);
+  } else {
+    return [];
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? [])
+    .filter((row: any) => row.projects && row.projects.status !== "archived")
+    .map((row: any) => projectPayload(row.projects, row.role ?? "viewer"));
+}
+
+async function getProjectsForUser(params: {
+  organisationId: string;
+  organisationRole: string;
+  email?: string;
+  userId?: string;
+  devFallback?: boolean;
+}) {
+  if (isOrganisationAdmin(params.organisationRole) || params.devFallback) {
+    return getAllOrganisationProjects({
+      organisationId: params.organisationId,
+      role: params.organisationRole,
+    });
+  }
+
+  return getProjectMemberProjects({
+    organisationId: params.organisationId,
+    email: params.email,
+    userId: params.userId,
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -135,10 +165,14 @@ export async function GET(req: NextRequest) {
     const requestedEmail = cleanText(url.searchParams.get("email"));
 
     const headerEmail = cleanText(req.headers.get("x-comconnect-user-email"));
+    const headerUserId = cleanText(req.headers.get("x-comconnect-user-id"));
+
     const email = requestedEmail || headerEmail;
+    const userId = headerUserId || "";
 
     let organisation: any = null;
     let organisationRole = "organisation_admin";
+    let organisationMembership: any = null;
     let devFallback = false;
 
     if (requestedOrganisationId) {
@@ -146,16 +180,19 @@ export async function GET(req: NextRequest) {
     }
 
     if (!organisation && email) {
-      const membership = await getMembershipByEmail(email);
+      organisationMembership = await getMembershipByEmail(email);
 
-      if (membership?.organisation_id) {
-        organisation = await getOrganisationById(membership.organisation_id);
-        organisationRole = membership.role ?? "organisation_admin";
+      if (organisationMembership?.organisation_id) {
+        organisation = await getOrganisationById(
+          organisationMembership.organisation_id
+        );
+        organisationRole = organisationMembership.role ?? "viewer";
       }
     }
 
     if (!organisation) {
       organisation = await getFirstOrganisation();
+      organisationRole = "organisation_admin";
       devFallback = true;
     }
 
@@ -168,7 +205,10 @@ export async function GET(req: NextRequest) {
 
     const allowedProjects = await getProjectsForUser({
       organisationId: organisation.id,
+      organisationRole,
       email,
+      userId,
+      devFallback,
     });
 
     const activeProject =
@@ -176,13 +216,19 @@ export async function GET(req: NextRequest) {
       allowedProjects[0] ??
       null;
 
+    const projectRole =
+      activeProject?.role ??
+      (isOrganisationAdmin(organisationRole) ? "project_manager" : "viewer");
+
     return ok({
       user: {
         email: email || null,
+        id: userId || null,
       },
       organisation: {
         id: organisation.id,
         name: pickName(organisation),
+        role: organisationRole,
       },
       active_project: activeProject
         ? {
@@ -190,16 +236,24 @@ export async function GET(req: NextRequest) {
             name: activeProject.name,
             project_code: activeProject.project_code,
             status: activeProject.status,
-            role: activeProject.role ?? "project_manager",
+            role: projectRole,
           }
         : null,
+
       organisation_id: organisation.id,
       organisation_name: pickName(organisation),
       organisation_role: organisationRole,
+
       active_project_id: activeProject?.id ?? null,
       active_project_name: activeProject?.name ?? "No active project",
-      project_role: activeProject?.role ?? "project_manager",
+      active_project_code: activeProject?.project_code ?? null,
+      project_role: projectRole,
+
       allowed_projects: allowedProjects,
+      can_manage_projects: isOrganisationAdmin(organisationRole),
+      can_create_projects: isOrganisationAdmin(organisationRole),
+      can_archive_projects: isOrganisationAdmin(organisationRole),
+
       dev_fallback: devFallback,
     });
   } catch (error: any) {
