@@ -6,6 +6,9 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "jsEngine": "hermes",
+    "plugins": [
+      "expo-notifications"
+    ],
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -13,10 +16,7 @@
       "package": "com.comconnect.participant",
       "permissions": [
         "INTERNET",
-        "CAMERA",
-        "RECORD_AUDIO",
-        "READ_MEDIA_VIDEO",
-        "READ_MEDIA_IMAGES"
+        "POST_NOTIFICATIONS"
       ],
       "usesCleartextTraffic": true,
       "jsEngine": "hermes"

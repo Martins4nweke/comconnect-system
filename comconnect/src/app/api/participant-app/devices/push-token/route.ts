@@ -9,7 +9,11 @@ function normalisePushToken(value: unknown) {
 
   if (!token) return null;
 
-  if (!token.startsWith("ExponentPushToken[")) {
+  const isExpoToken =
+    token.startsWith("ExponentPushToken[") ||
+    token.startsWith("ExpoPushToken[");
+
+  if (!isExpoToken || !token.endsWith("]")) {
     return null;
   }
 
