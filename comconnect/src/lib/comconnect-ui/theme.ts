@@ -144,6 +144,12 @@ const automationSafety = [
     tag: "Ops",
   },
   {
+    title: "Export Center",
+    href: "/export",
+    description: "Download participants, messages, inbox, delivery logs and media files.",
+    tag: "Export",
+  },
+  {
     title: "Fallback Rules",
     href: "/fallback-rules",
     description: "App → push → SMS → voice logic.",
@@ -162,7 +168,6 @@ const automationSafety = [
     tag: "Ops",
   },
 ];
-
 const platformApi = [
   {
     title: "Developer API",
@@ -170,29 +175,41 @@ const platformApi = [
     description: "Participant app and commercial API console.",
     tag: "API",
   },
-  {
-    title: "Export Center",
-    href: "/export",
-    description: "Download participants, messages, inbox, logs and media files.",
-    tag: "Export",
-  },
-  {
+    {
     title: "API Keys",
     href: "/api-keys",
     description: "Create and manage external API access.",
     tag: "API",
   },
   {
+    title: "Webhooks",
+    href: "/webhooks",
+    description: "Send delivery and reply events to clients.",
+    tag: "API",
+  },
+  {
+    title: "API Usage",
+    href: "/api-usage",
+    description: "Track requests, limits and billing usage.",
+    tag: "API",
+  },
+  {
     title: "Billing",
     href: "/billing",
-    description: "Manage subscriptions, wallet and usage.",
-    tag: "Billing",
+    description: "Plans, wallet, usage and payments.",
+    tag: "Platform",
   },
   {
     title: "Audit Logs",
     href: "/audit-logs",
-    description: "Review platform activity and trace important changes.",
-    tag: "Audit",
+    description: "Security and activity trail.",
+    tag: "Admin",
+  },
+  {
+    title: "Project Settings",
+    href: "/project-settings",
+    description: "Project channels, modules and configuration.",
+    tag: "Admin",
   },
 ];
 
