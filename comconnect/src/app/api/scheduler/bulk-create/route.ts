@@ -2,13 +2,22 @@ import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
 
 type Channel = "app" | "sms" | "voice" | "whatsapp";
 
 const MAX_BULK_SCHEDULES = 500;
 
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function normaliseChannel(value: unknown): Channel {
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = cleanText(value).toLowerCase();
 
   if (text === "push" || text === "app_push") return "app";
   if (text === "sms") return "sms";
@@ -21,7 +30,7 @@ function normaliseChannel(value: unknown): Channel {
 function boolValue(value: unknown, fallback: boolean) {
   if (typeof value === "boolean") return value;
 
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = cleanText(value).toLowerCase();
 
   if (["true", "yes", "1", "y"].includes(text)) return true;
   if (["false", "no", "0", "n"].includes(text)) return false;
@@ -44,11 +53,23 @@ function resolveAllowedChannels(sourceType: string, value: unknown): Channel[] {
   if (isAppOnlySource(sourceType)) return ["app"];
 
   if (Array.isArray(value)) {
-    const channels = value
+    const channels = value.map((item) => normaliseChannel(item)).filter(Boolean);
+    return channels.length > 0
+      ? Array.from(new Set(channels))
+      : ["app", "sms", "voice"];
+  }
+
+  const text = cleanText(value);
+
+  if (text) {
+    const channels = text
+      .split(/[|,;]/)
       .map((item) => normaliseChannel(item))
       .filter(Boolean);
 
-    return channels.length > 0 ? channels : ["app", "sms", "voice"];
+    return channels.length > 0
+      ? Array.from(new Set(channels))
+      : ["app", "sms", "voice"];
   }
 
   return ["app", "sms", "voice"];
@@ -56,7 +77,7 @@ function resolveAllowedChannels(sourceType: string, value: unknown): Channel[] {
 
 function resolveDeliveryMode(sourceType: string, value: unknown) {
   if (isAppOnlySource(sourceType)) return "app_only";
-  return String(value ?? "participant_preference");
+  return cleanText(value) || "participant_preference";
 }
 
 function resolveRequestedChannel({
@@ -96,41 +117,50 @@ function chunk<T>(items: T[], size: number) {
   return chunks;
 }
 
-async function resolveProject(body: any) {
-  const projectId = body?.project_id ? String(body.project_id).trim() : "";
-  const projectCode = body?.project_code ? String(body.project_code).trim() : "";
+function canBulkSchedule(context: Awaited<ReturnType<typeof getScopedContext>>) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
 
-  if (projectId) {
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .select("id, organisation_id, project_code")
-      .eq("id", projectId)
-      .single();
-
-    if (error || !data) throw new Error("Project not found");
-    return data;
-  }
-
-  if (projectCode) {
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .select("id, organisation_id, project_code")
-      .eq("project_code", projectCode)
-      .single();
-
-    if (error || !data) throw new Error("Project code not found");
-    return data;
-  }
-
-  return null;
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    [
+      "project_manager",
+      "research_assistant",
+      "data_manager",
+      "clinician",
+      "nurse",
+    ].includes(projectRole)
+  );
 }
 
-async function loadParticipants(body: any) {
-  const mode = String(body?.mode ?? "selected");
+async function loadParticipants(
+  body: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const mode = cleanText(body?.mode) || "selected";
 
   const explicitParticipantIds: string[] = Array.isArray(body?.participant_ids)
-    ? body.participant_ids.map((id: unknown) => String(id).trim()).filter(Boolean)
+    ? body.participant_ids
+        .map((id: unknown) => cleanText(id))
+        .filter(Boolean)
     : [];
+
+  const activeProjectId = cleanText(context.active_project_id);
+
+  let query = supabaseAdmin
+    .from("participants")
+    .select("*")
+    .eq("organisation_id", context.organisation_id)
+    .neq("status", "archived");
+
+  if (activeProjectId) {
+    query = query.eq("project_id", activeProjectId);
+  } else if (context.allowed_project_ids.length > 0) {
+    query = query.in("project_id", context.allowed_project_ids);
+  } else {
+    throw new Error("No accessible project found.");
+  }
 
   if (mode === "selected") {
     if (explicitParticipantIds.length === 0) {
@@ -138,92 +168,131 @@ async function loadParticipants(body: any) {
     }
 
     if (explicitParticipantIds.length > MAX_BULK_SCHEDULES) {
-      throw new Error(`You can schedule a maximum of ${MAX_BULK_SCHEDULES} selected participants at once.`);
+      throw new Error(
+        `You can schedule a maximum of ${MAX_BULK_SCHEDULES} selected participants at once.`
+      );
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("participants")
-      .select("*")
-      .in("id", explicitParticipantIds)
-      .neq("status", "archived");
-
-    if (error) throw new Error(error.message);
-
-    return data ?? [];
-  }
-
-  if (mode === "all_active") {
-    const project = await resolveProject(body);
-
-    if (!project) {
-      throw new Error("project_id or project_code is required for all_active mode");
-    }
-
+    query = query.in("id", explicitParticipantIds);
+  } else if (mode === "all_active") {
     const requestedLimit = Number(body?.limit ?? MAX_BULK_SCHEDULES);
     const safeLimit = Math.min(
-      Math.max(Number.isFinite(requestedLimit) ? requestedLimit : MAX_BULK_SCHEDULES, 1),
+      Math.max(
+        Number.isFinite(requestedLimit) ? requestedLimit : MAX_BULK_SCHEDULES,
+        1
+      ),
       MAX_BULK_SCHEDULES
     );
 
-    let query = supabaseAdmin
-      .from("participants")
-      .select("*")
-      .eq("project_id", project.id)
-      .neq("status", "archived")
-      .order("created_at", { ascending: true })
-      .limit(safeLimit);
+    query = query.order("created_at", { ascending: true }).limit(safeLimit);
 
     if (body?.status) {
-      query = query.eq("status", String(body.status));
+      query = query.eq("status", cleanText(body.status));
+    } else {
+      query = query.eq("status", "active");
     }
-
-    const { data, error } = await query;
-
-    if (error) throw new Error(error.message);
-
-    return data ?? [];
+  } else {
+    throw new Error("Unsupported bulk schedule mode");
   }
 
-  throw new Error("Unsupported bulk schedule mode");
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  return data ?? [];
+}
+
+async function loadMessage(
+  body: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const messageCode = cleanText(body?.message_code);
+
+  if (!messageCode) {
+    throw new Error("message_code is required");
+  }
+
+  let query = supabaseAdmin
+    .from("communication_messages")
+    .select("*")
+    .eq("organisation_id", context.organisation_id)
+    .eq("message_code", messageCode)
+    .neq("status", "archived");
+
+  if (context.active_project_id) {
+    query = query.eq("project_id", context.active_project_id);
+  } else if (context.allowed_project_ids.length > 0) {
+    query = query.in("project_id", context.allowed_project_ids);
+  } else {
+    throw new Error("No accessible project found.");
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error || !data) {
+    throw new Error("Message not found or not allowed for this project.");
+  }
+
+  return data;
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-
-  if (!body) {
-    return fail("Invalid request body", 400);
-  }
-
-  if (!body?.scheduled_for) {
-    return fail("scheduled_for is required", 400);
-  }
-
-  if (!body?.message_code) {
-    return fail("message_code is required", 400);
-  }
-
   try {
-    const participants = await loadParticipants(body);
+    const context = await getScopedContext(req);
+
+    if (!canBulkSchedule(context)) {
+      return fail("You do not have permission to create bulk schedules.", 403);
+    }
+
+    const body = await req.json().catch(() => null);
+
+    if (!body) {
+      return fail("Invalid request body", 400);
+    }
+
+    if (!body?.scheduled_for) {
+      return fail("scheduled_for is required", 400);
+    }
+
+    if (!body?.message_code) {
+      return fail("message_code is required", 400);
+    }
+
+    const participants = await loadParticipants(body, context);
 
     if (participants.length === 0) {
       return fail("No matching participants found", 400);
     }
 
     if (participants.length > MAX_BULK_SCHEDULES) {
-      return fail(`You can schedule a maximum of ${MAX_BULK_SCHEDULES} participants at once.`, 400);
+      return fail(
+        `You can schedule a maximum of ${MAX_BULK_SCHEDULES} participants at once.`,
+        400
+      );
     }
 
-    const sourceType = String(body.source_type ?? "manual_message");
-    const deliveryMode = resolveDeliveryMode(sourceType, body.delivery_mode);
+    const message = await loadMessage(body, context);
+
+    const sourceType = cleanText(body.source_type) || "manual_message";
+    const deliveryMode = resolveDeliveryMode(
+      sourceType,
+      body.delivery_mode ?? message.delivery_mode
+    );
     const allowedChannels = resolveAllowedChannels(
       sourceType,
-      body.allowed_channels
+      body.allowed_channels ?? message.allowed_channels
     );
     const requestedChannel = normaliseChannel(
-      body.requested_channel ?? body.channel
+      body.requested_channel ?? body.channel ?? message.channel
     );
 
     const rows = participants.map((participant) => {
+      if (participant.project_id !== message.project_id) {
+        throw new Error(
+          `Participant ${participant.participant_code} is not in the selected message project.`
+        );
+      }
+
       const participantPreferredChannel = normaliseChannel(
         participant.metadata?.preferred_channel
       );
@@ -236,22 +305,23 @@ export async function POST(req: NextRequest) {
       });
 
       return {
-        organisation_id: participant.organisation_id,
+        organisation_id: context.organisation_id,
         project_id: participant.project_id,
         participant_id: participant.id,
         participant_code: participant.participant_code,
 
-        message_code: body.message_code ?? null,
+        message_code: message.message_code,
         message_title:
-          body.message_title ?? body.title ?? "ComConnect message",
+          body.message_title ?? body.title ?? message.message_title,
         message_body:
           body.message_body ??
           body.body ??
+          message.message_body ??
           "You have a ComConnect update. Please open the app.",
 
         source_type: sourceType,
-        source_id: body.source_id ?? null,
-        source_label: body.source_label ?? null,
+        source_id: body.source_id ?? message.id,
+        source_label: body.source_label ?? message.message_title ?? null,
 
         delivery_mode: deliveryMode,
         allowed_channels: allowedChannels,
@@ -309,11 +379,9 @@ export async function POST(req: NextRequest) {
       insertedIds.push(...((data ?? []).map((item) => item.id)));
     }
 
-    const firstParticipant = participants[0];
-
     await createAuditLog({
-      organisation_id: firstParticipant.organisation_id,
-      project_id: firstParticipant.project_id,
+      organisation_id: context.organisation_id,
+      project_id: context.active_project_id,
       actor_type: "dashboard_user",
       action: "communication_schedules.bulk_created",
       entity_type: "communication_schedule",
@@ -322,7 +390,7 @@ export async function POST(req: NextRequest) {
         mode: body.mode ?? "selected",
         attempted_count: participants.length,
         inserted_count: insertedCount,
-        message_code: body.message_code,
+        message_code: message.message_code,
         requested_channel: requestedChannel,
       },
     });

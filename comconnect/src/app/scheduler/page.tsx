@@ -4,8 +4,29 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import {
+  CompactCard,
+  FieldLabel,
+  LinkButton,
+  Notice,
+  PageHeader,
+  PageShell,
+  PrimaryButton,
+  SelectInput,
+  TextInput,
+} from "@/components/comconnect-ui/DashboardUI";
 
 type Channel = "app" | "sms" | "voice" | "whatsapp";
+type RecipientMode = "one" | "selected" | "all";
+
+type CurrentContext = {
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_id?: string | null;
+  active_project_name?: string | null;
+  project_role?: string | null;
+};
 
 type SelectedParticipant = {
   id: string;
@@ -60,29 +81,9 @@ type ScheduleRow = {
   } | null;
 };
 
-type RecipientMode = "one" | "selected" | "all";
-
-const channelCards: {
-  key: Channel;
-  title: string;
-  description: string;
-}[] = [
-  {
-    key: "app",
-    title: "Manual App / Push",
-    description: "Schedule an in-app/push message for chosen participant(s).",
-  },
-  {
-    key: "sms",
-    title: "Manual SMS",
-    description: "Schedule SMS through Africa's Talking.",
-  },
-  {
-    key: "voice",
-    title: "Manual Voice",
-    description: "Schedule a voice task through Africa's Talking.",
-  },
-];
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 function participantName(participant?: SelectedParticipant | null) {
   if (!participant) return "Participant";
@@ -132,15 +133,11 @@ function parseCsv(text: string) {
     }
 
     if ((char === "\n" || char === "\r") && !insideQuotes) {
-      if (char === "\r" && nextChar === "\n") {
-        index += 1;
-      }
+      if (char === "\r" && nextChar === "\n") index += 1;
 
       currentRow.push(currentValue.trim());
 
-      if (currentRow.some((value) => value !== "")) {
-        rows.push(currentRow);
-      }
+      if (currentRow.some((value) => value !== "")) rows.push(currentRow);
 
       currentRow = [];
       currentValue = "";
@@ -152,9 +149,7 @@ function parseCsv(text: string) {
 
   currentRow.push(currentValue.trim());
 
-  if (currentRow.some((value) => value !== "")) {
-    rows.push(currentRow);
-  }
+  if (currentRow.some((value) => value !== "")) rows.push(currentRow);
 
   if (rows.length < 2) return [];
 
@@ -206,7 +201,7 @@ function toDateTimeLocal(value?: string | null) {
 }
 
 function normaliseChannel(value?: string | null): Channel {
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = cleanText(value).toLowerCase();
 
   if (text === "push" || text === "app_push") return "app";
   if (text === "sms") return "sms";
@@ -224,6 +219,7 @@ function SchedulerPageContent() {
   const participantCode = searchParams.get("participant_code");
   const messageCodeFromUrl = searchParams.get("message_code");
 
+  const [context, setContext] = useState<CurrentContext | null>(null);
   const [selectedParticipant, setSelectedParticipant] =
     useState<SelectedParticipant | null>(null);
   const [loadingParticipant, setLoadingParticipant] = useState(false);
@@ -271,6 +267,8 @@ function SchedulerPageContent() {
   const [editRespectQuietTime, setEditRespectQuietTime] = useState(true);
   const [editBusy, setEditBusy] = useState(false);
 
+  const activeProjectId = cleanText(context?.active_project_id);
+
   const activeParticipants = useMemo(() => {
     return participants.filter((participant) => participant.status !== "archived");
   }, [participants]);
@@ -304,6 +302,24 @@ function SchedulerPageContent() {
     selectedParticipant ??
     participants.find((participant) => participant.id === manualParticipantId) ??
     null;
+
+  async function loadContext() {
+    try {
+      const response = await fetch("/api/context/current", {
+        cache: "no-store",
+      });
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to load context.");
+      }
+
+      setContext(json.data as CurrentContext);
+    } catch (error: any) {
+      setNote(error?.message ?? "Failed to load context.");
+    }
+  }
 
   async function loadParticipants() {
     setLoadingParticipants(true);
@@ -339,8 +355,11 @@ function SchedulerPageContent() {
 
     try {
       const params = new URLSearchParams();
-      params.set("project_code", "DEMO-001");
       params.set("q", messageCodeFromUrl);
+
+      if (activeProjectId) {
+        params.set("project_id", activeProjectId);
+      }
 
       const response = await fetch(`/api/messages?${params.toString()}`, {
         cache: "no-store",
@@ -352,7 +371,9 @@ function SchedulerPageContent() {
         throw new Error(json?.error ?? "Failed to load message.");
       }
 
-      const messages = Array.isArray(json.data) ? (json.data as MessageRecord[]) : [];
+      const messages = Array.isArray(json.data)
+        ? (json.data as MessageRecord[])
+        : [];
 
       const exactMatch =
         messages.find((item) => item.message_code === messageCodeFromUrl) ??
@@ -360,9 +381,7 @@ function SchedulerPageContent() {
 
       if (!exactMatch) {
         setMessageCode(messageCodeFromUrl);
-        setNote(
-          `Message code ${messageCodeFromUrl} was passed from Message Library, but full details were not found. You can still complete the schedule manually.`
-        );
+        setNote("Message code received. Complete schedule details.");
         return;
       }
 
@@ -380,20 +399,14 @@ function SchedulerPageContent() {
         exactMatch.media_url ||
         exactMatch.media_type
       ) {
-        setMessageMediaNote(
-          `Media attached: ${
-            exactMatch.media_type ?? "media"
-          }. The participant message body should contain the media link if the channel sends links.`
-        );
+        setMessageMediaNote(`Media attached: ${exactMatch.media_type ?? "media"}.`);
       } else {
         setMessageMediaNote("");
       }
 
-      setNote(
-        `Message loaded from Message Library: ${exactMatch.message_code}. Choose participant(s), set date/time, then create schedule.`
-      );
+      setNote(`Message loaded: ${exactMatch.message_code}.`);
     } catch (error: any) {
-      setNote(error?.message ?? "Failed to load message from Message Library.");
+      setNote(error?.message ?? "Failed to load message.");
     }
   }
 
@@ -426,10 +439,23 @@ function SchedulerPageContent() {
   }
 
   useEffect(() => {
-    loadParticipants();
-    loadMessageFromUrl();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadContext();
   }, []);
+
+  useEffect(() => {
+    if (context) {
+      void loadParticipants();
+      void loadSchedules();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context?.active_project_id]);
+
+  useEffect(() => {
+    if (context) {
+      void loadMessageFromUrl();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageCodeFromUrl, context?.active_project_id]);
 
   useEffect(() => {
     async function loadParticipant() {
@@ -461,11 +487,11 @@ function SchedulerPageContent() {
       }
     }
 
-    loadParticipant();
+    void loadParticipant();
   }, [participantId]);
 
   useEffect(() => {
-    loadSchedules();
+    void loadSchedules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [participantId, statusFilter]);
 
@@ -501,217 +527,162 @@ function SchedulerPageContent() {
     return activeParticipants.map((participant) => participant.id);
   }
 
-  async function createScheduleForParticipant(
-    participantIdForSchedule: string,
-    finalChannel: Channel
-  ) {
-    const response = await fetch("/api/scheduler", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        participant_id: participantIdForSchedule,
-        message_code: messageCode.trim(),
-        message_title: messageTitle.trim() || "ComConnect message",
-        message_body:
-          messageBody.trim() ||
-          "You have a ComConnect update. Please open the app.",
-        requested_channel: finalChannel,
-        scheduled_for: new Date(scheduleAt).toISOString(),
-        priority,
-        respect_quiet_time: respectQuietTime,
-        source_type: "manual_message",
-        delivery_mode: "participant_preference",
-        allowed_channels: ["app", "sms", "voice", "whatsapp"],
-        metadata: {
-          created_from: "scheduler_page_manual",
-          recipient_mode: participantId ? "url_participant" : recipientMode,
-          source_message_code: messageCode.trim(),
-        },
-      }),
-    });
-
-    const json = await response.json();
-
-    if (!response.ok || !json?.ok) {
-      throw new Error(json?.error ?? "Failed to create schedule.");
-    }
-
-    return json.data;
-  }
-
   async function createManualSchedule(selectedChannel?: Channel) {
-  setNote("");
+    setNote("");
 
-  const finalChannel = selectedChannel ?? channel;
+    const finalChannel = selectedChannel ?? channel;
 
-  if (!messageCode.trim()) {
-    setNote("Message code is required.");
-    return;
-  }
-
-  if (!scheduleAt) {
-    setNote("Schedule date/time is required.");
-    return;
-  }
-
-  const recipientIds = resolveRecipientIds();
-
-  if (recipientMode !== "all" && recipientIds.length === 0) {
-    setNote("Select at least one participant before creating schedule.");
-    return;
-  }
-
-  if ((recipientMode === "selected" || recipientMode === "all") && !participantId) {
-    const countLabel =
-      recipientMode === "all"
-        ? "up to 500 active participants in DEMO-001"
-        : `${recipientIds.length} selected participant(s)`;
-
-    const confirmed = window.confirm(
-      `Create this schedule for ${countLabel}?`
-    );
-
-    if (!confirmed) return;
-  }
-
-  setBusy(true);
-
-  try {
-    if ((recipientMode === "selected" || recipientMode === "all") && !participantId) {
-      const body =
-        recipientMode === "all"
-          ? {
-              mode: "all_active",
-              project_code: "DEMO-001",
-              limit: 500,
-
-              message_code: messageCode.trim(),
-              message_title: messageTitle.trim() || "ComConnect message",
-              message_body:
-                messageBody.trim() ||
-                "You have a ComConnect update. Please open the app.",
-
-              requested_channel: finalChannel,
-
-              scheduled_for: new Date(scheduleAt).toISOString(),
-
-              priority,
-              respect_quiet_time: respectQuietTime,
-
-              source_type: "manual_message",
-              delivery_mode: "participant_preference",
-              allowed_channels: ["app", "sms", "voice", "whatsapp"],
-
-              metadata: {
-                created_from: "scheduler_page_bulk_create",
-                recipient_mode: "all_active",
-                source_message_code: messageCode.trim(),
-              },
-            }
-          : {
-              mode: "selected",
-              participant_ids: recipientIds,
-
-              message_code: messageCode.trim(),
-              message_title: messageTitle.trim() || "ComConnect message",
-              message_body:
-                messageBody.trim() ||
-                "You have a ComConnect update. Please open the app.",
-
-              requested_channel: finalChannel,
-
-              scheduled_for: new Date(scheduleAt).toISOString(),
-
-              priority,
-              respect_quiet_time: respectQuietTime,
-
-              source_type: "manual_message",
-              delivery_mode: "participant_preference",
-              allowed_channels: ["app", "sms", "voice", "whatsapp"],
-
-              metadata: {
-                created_from: "scheduler_page_bulk_create",
-                recipient_mode: "selected",
-                source_message_code: messageCode.trim(),
-              },
-            };
-
-      const response = await fetch("/api/scheduler/bulk-create", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      const json = await response.json();
-
-      if (!response.ok || !json?.ok) {
-        throw new Error(json?.error ?? "Failed to create bulk schedules.");
-      }
-
-      setNote(
-        `Created ${json.data?.inserted_count ?? 0} schedule(s). Channel: ${finalChannel}. Message: ${messageCode}.`
-      );
-    } else {
-      const targetParticipantId = recipientIds[0];
-
-      const response = await fetch("/api/scheduler", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          participant_id: targetParticipantId,
-
-          message_code: messageCode.trim(),
-          message_title: messageTitle.trim() || "ComConnect message",
-          message_body:
-            messageBody.trim() ||
-            "You have a ComConnect update. Please open the app.",
-
-          requested_channel: finalChannel,
-
-          scheduled_for: new Date(scheduleAt).toISOString(),
-
-          priority,
-          respect_quiet_time: respectQuietTime,
-
-          source_type: "manual_message",
-          delivery_mode: "participant_preference",
-          allowed_channels: ["app", "sms", "voice", "whatsapp"],
-
-          metadata: {
-            created_from: "scheduler_page_manual",
-            recipient_mode: participantId ? "url_participant" : "one",
-            source_message_code: messageCode.trim(),
-          },
-        }),
-      });
-
-      const json = await response.json();
-
-      if (!response.ok || !json?.ok) {
-        throw new Error(json?.error ?? "Failed to create schedule.");
-      }
-
-      setNote(
-        `Schedule created. Channel: ${json.data?.resolved_channel ?? finalChannel}. Message: ${messageCode}.`
-      );
+    if (!activeProjectId) {
+      setNote("No active project selected.");
+      return;
     }
 
-    setScheduleAt("");
-    setPriority("normal");
+    if (!messageCode.trim()) {
+      setNote("Message code is required.");
+      return;
+    }
 
-    await loadSchedules();
-  } catch (error: any) {
-    setNote(error?.message ?? "Failed to create schedule.");
-  } finally {
-    setBusy(false);
+    if (!scheduleAt) {
+      setNote("Schedule date/time is required.");
+      return;
+    }
+
+    const recipientIds = resolveRecipientIds();
+
+    if (recipientMode !== "all" && recipientIds.length === 0) {
+      setNote("Select at least one participant.");
+      return;
+    }
+
+    if ((recipientMode === "selected" || recipientMode === "all") && !participantId) {
+      const countLabel =
+        recipientMode === "all"
+          ? "up to 500 active participants"
+          : `${recipientIds.length} selected participant(s)`;
+
+      if (!window.confirm(`Create schedule for ${countLabel}?`)) return;
+    }
+
+    setBusy(true);
+
+    try {
+      if ((recipientMode === "selected" || recipientMode === "all") && !participantId) {
+        const body =
+          recipientMode === "all"
+            ? {
+                mode: "all_active",
+                project_id: activeProjectId,
+                limit: 500,
+                message_code: messageCode.trim(),
+                message_title: messageTitle.trim() || "ComConnect message",
+                message_body:
+                  messageBody.trim() ||
+                  "You have a ComConnect update. Please open the app.",
+                requested_channel: finalChannel,
+                scheduled_for: new Date(scheduleAt).toISOString(),
+                priority,
+                respect_quiet_time: respectQuietTime,
+                source_type: "manual_message",
+                delivery_mode: "participant_preference",
+                allowed_channels: ["app", "sms", "voice", "whatsapp"],
+                metadata: {
+                  created_from: "scheduler_page_bulk_create",
+                  recipient_mode: "all_active",
+                  source_message_code: messageCode.trim(),
+                },
+              }
+            : {
+                mode: "selected",
+                project_id: activeProjectId,
+                participant_ids: recipientIds,
+                message_code: messageCode.trim(),
+                message_title: messageTitle.trim() || "ComConnect message",
+                message_body:
+                  messageBody.trim() ||
+                  "You have a ComConnect update. Please open the app.",
+                requested_channel: finalChannel,
+                scheduled_for: new Date(scheduleAt).toISOString(),
+                priority,
+                respect_quiet_time: respectQuietTime,
+                source_type: "manual_message",
+                delivery_mode: "participant_preference",
+                allowed_channels: ["app", "sms", "voice", "whatsapp"],
+                metadata: {
+                  created_from: "scheduler_page_bulk_create",
+                  recipient_mode: "selected",
+                  source_message_code: messageCode.trim(),
+                },
+              };
+
+        const response = await fetch("/api/scheduler/bulk-create", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+
+        const json = await response.json();
+
+        if (!response.ok || !json?.ok) {
+          throw new Error(json?.error ?? "Failed to create bulk schedules.");
+        }
+
+        setNote(`Created ${json.data?.inserted_count ?? 0} schedule(s).`);
+      } else {
+        const targetParticipantId = recipientIds[0];
+
+        const response = await fetch("/api/scheduler", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            project_id: activeProjectId,
+            participant_id: targetParticipantId,
+            message_code: messageCode.trim(),
+            message_title: messageTitle.trim() || "ComConnect message",
+            message_body:
+              messageBody.trim() ||
+              "You have a ComConnect update. Please open the app.",
+            requested_channel: finalChannel,
+            scheduled_for: new Date(scheduleAt).toISOString(),
+            priority,
+            respect_quiet_time: respectQuietTime,
+            source_type: "manual_message",
+            delivery_mode: "participant_preference",
+            allowed_channels: ["app", "sms", "voice", "whatsapp"],
+            metadata: {
+              created_from: "scheduler_page_manual",
+              recipient_mode: participantId ? "url_participant" : "one",
+              source_message_code: messageCode.trim(),
+            },
+          }),
+        });
+
+        const json = await response.json();
+
+        if (!response.ok || !json?.ok) {
+          throw new Error(json?.error ?? "Failed to create schedule.");
+        }
+
+        setNote(
+          `Schedule created. Channel: ${
+            json.data?.resolved_channel ?? finalChannel
+          }.`
+        );
+      }
+
+      setScheduleAt("");
+      setPriority("normal");
+
+      await loadSchedules();
+    } catch (error: any) {
+      setNote(error?.message ?? "Failed to create schedule.");
+    } finally {
+      setBusy(false);
+    }
   }
-}
 
   async function handleBulkScheduleFile(file: File) {
     setNote("");
@@ -721,7 +692,7 @@ function SchedulerPageContent() {
       const schedules = await parseUploadFile(file);
 
       if (schedules.length === 0) {
-        throw new Error("No valid schedule rows found in the uploaded file.");
+        throw new Error("No valid schedule rows found.");
       }
 
       const response = await fetch("/api/scheduler/bulk-upload", {
@@ -730,6 +701,7 @@ function SchedulerPageContent() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          project_id: activeProjectId,
           schedules,
         }),
       });
@@ -740,14 +712,7 @@ function SchedulerPageContent() {
         throw new Error(json?.error ?? "Bulk schedule upload failed.");
       }
 
-      setNote(
-        `Bulk schedule upload complete. Inserted ${
-          json.data?.inserted_count ?? 0
-        } schedule(s). Skipped missing participants: ${
-          json.data?.skipped_missing_participants_count ?? 0
-        }.`
-      );
-
+      setNote(`Bulk upload complete. Inserted ${json.data?.inserted_count ?? 0}.`);
       await loadSchedules();
     } catch (error: any) {
       setNote(error?.message ?? "Bulk schedule upload failed.");
@@ -817,7 +782,7 @@ function SchedulerPageContent() {
         throw new Error(json?.error ?? "Failed to update schedule.");
       }
 
-      setNote("Schedule updated successfully.");
+      setNote("Schedule updated.");
       setEditingSchedule(null);
       await loadSchedules();
     } catch (error: any) {
@@ -833,37 +798,39 @@ function SchedulerPageContent() {
 
     try {
       const response = await fetch("/api/scheduler/run-due", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({}),
-  cache: "no-store",
-});
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+        cache: "no-store",
+      });
 
       const json = await response.json();
 
       if (!response.ok || !json?.ok) {
-        throw new Error(json?.error ?? "Failed to run due scheduled messages.");
+        throw new Error(json?.error ?? "Failed to run due messages.");
       }
 
-      setNote("Due scheduled messages processed. Refreshing queue...");
+      setNote("Due messages processed.");
       await loadSchedules();
     } catch (error: any) {
-      setNote(error?.message ?? "Failed to run due scheduled messages.");
+      setNote(error?.message ?? "Failed to run due messages.");
     } finally {
       setRunDueBusy(false);
     }
   }
 
   async function archiveSchedule(row: ScheduleRow) {
-    const confirmed = window.confirm(
-      `Archive schedule ${row.message_code ?? ""} for ${
-        row.participant_code ?? row.participants?.participant_code ?? "participant"
-      }?`
-    );
-
-    if (!confirmed) return;
+    if (
+      !window.confirm(
+        `Archive schedule ${row.message_code ?? ""} for ${
+          row.participant_code ?? row.participants?.participant_code ?? "participant"
+        }?`
+      )
+    ) {
+      return;
+    }
 
     setNote("");
 
@@ -878,7 +845,7 @@ function SchedulerPageContent() {
         throw new Error(json?.error ?? "Failed to archive schedule.");
       }
 
-      setNote("Schedule archived successfully.");
+      setNote("Schedule archived.");
       await loadSchedules();
     } catch (error: any) {
       setNote(error?.message ?? "Failed to archive schedule.");
@@ -886,157 +853,75 @@ function SchedulerPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[#EEF3FB] p-4 md:p-6">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <section className="rounded-[2rem] border-2 border-[#171717] bg-white p-5 shadow-[5px_5px_0_#171717]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-black uppercase tracking-wide text-[#FF5C1A]">
-                Core Communication
-              </p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Core Communication"
+        title="Scheduler"
+        subtitle="Create, edit and process scheduled project messages."
+        actions={
+          <>
+            <LinkButton href="/participants">Participants</LinkButton>
+            <LinkButton href="/messages">Messages</LinkButton>
+            <LinkButton href="/media-library">Media</LinkButton>
+          </>
+        }
+      />
 
-              <h1 className="mt-2 text-3xl font-black text-[#171717]">
-                Scheduler
-              </h1>
+      {note ? <Notice tone="warning">{note}</Notice> : null}
 
-              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600">
-                Schedule app, SMS, WhatsApp and voice messages. Manual and bulk
-                schedules are saved into one unified queue.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/participants"
-                className="rounded-2xl border-2 border-[#171717] bg-white px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717]"
-              >
-                Participants
-              </Link>
-
-              <Link
-                href="/messages"
-                className="rounded-2xl border-2 border-[#171717] bg-white px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717]"
-              >
-                Message Library
-              </Link>
-
-              <Link
-                href="/media-library"
-                className="rounded-2xl border-2 border-[#171717] bg-[#FFF7F2] px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717]"
-              >
-                Media Library
-              </Link>
-            </div>
-          </div>
-        </section>
-
-<section className="grid gap-4 md:grid-cols-3">
-  {channelCards.map((item) => {
-    const isSelected = channel === item.key;
-
-    return (
-      <button
-        key={item.key}
-        type="button"
-        onClick={() => {
-          setChannel(item.key);
-          setNote(`${item.title} selected. Complete the form below, then click Create schedule.`);
-        }}
-        disabled={busy}
-        className={`rounded-[1.5rem] border-2 border-[#171717] p-5 text-left shadow-[3px_3px_0_#171717] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_#171717] disabled:opacity-60 ${
-          isSelected ? "bg-[#FFF7F2]" : "bg-white"
-        }`}
-      >
-        <p className="text-sm font-black text-[#FF5C1A]">{item.title}</p>
-        <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
-          {item.description}
-        </p>
-        {isSelected ? (
-          <p className="mt-3 text-xs font-black uppercase text-slate-500">
-            Selected
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">
+            Organisation
           </p>
-        ) : null}
-      </button>
-    );
-  })}
-</section>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {context?.organisation_name ?? "Loading..."}
+          </p>
+        </CompactCard>
 
-        {participantId || participantCode ? (
-          <section className="rounded-[2rem] border-2 border-[#171717] bg-[#FFF7F2] p-5 shadow-[4px_4px_0_#171717]">
-            <p className="text-sm font-black uppercase tracking-wide text-[#FF5C1A]">
-              Selected participant from URL
-            </p>
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">Project</p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {context?.active_project_name ?? "Loading..."}
+          </p>
+        </CompactCard>
 
-            {loadingParticipant ? (
-              <p className="mt-2 text-sm font-bold text-slate-600">
-                Loading participant...
-              </p>
-            ) : selectedParticipant ? (
-              <div className="mt-2 grid gap-2 text-sm font-bold text-slate-700 md:grid-cols-4">
-                <p>
-                  <span className="text-slate-500">Code:</span>{" "}
-                  {selectedParticipant.participant_code}
-                </p>
-                <p>
-                  <span className="text-slate-500">Name:</span>{" "}
-                  {participantName(selectedParticipant)}
-                </p>
-                <p>
-                  <span className="text-slate-500">Phone:</span>{" "}
-                  {selectedParticipant.phone_number ?? "—"}
-                </p>
-                <p>
-                  <span className="text-slate-500">Channel:</span>{" "}
-                  {selectedParticipant.metadata?.preferred_channel ?? "app"}
-                </p>
-                <p>
-                  <span className="text-slate-500">Quiet time:</span>{" "}
-                  {selectedParticipant.metadata?.quiet_time_enabled === false
-                    ? "Off"
-                    : `${
-                        selectedParticipant.metadata?.quiet_time_start ??
-                        "20:00"
-                      }–${
-                        selectedParticipant.metadata?.quiet_time_end ?? "07:00"
-                      }`}
-                </p>
-                <p>
-                  <span className="text-slate-500">Language:</span>{" "}
-                  {selectedParticipant.preferred_language ?? "en"}
-                </p>
-                <p>
-                  <span className="text-slate-500">App:</span>{" "}
-                  {selectedParticipant.app_access_enabled
-                    ? "Enabled"
-                    : "Disabled"}
-                </p>
-                <p>
-                  <span className="text-slate-500">Status:</span>{" "}
-                  {selectedParticipant.status ?? "—"}
-                </p>
-              </div>
-            ) : (
-              <p className="mt-2 text-sm font-bold text-slate-600">
-                Participant passed from URL: {participantCode ?? participantId}
-              </p>
-            )}
-          </section>
-        ) : null}
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">
+            Queue
+          </p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {schedules.length} loaded
+          </p>
+        </CompactCard>
+      </div>
 
-        <section className="rounded-[2rem] border-2 border-[#171717] bg-white p-5 shadow-[4px_4px_0_#171717]">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-[#171717]">
-                Manual schedule
-              </h2>
-
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                Choose a message, choose participant(s), set date/time, then
-                create schedules.
+      {participantId || participantCode ? (
+        <CompactCard title="Selected participant">
+          {loadingParticipant ? (
+            <p className="text-sm font-bold text-slate-600">Loading...</p>
+          ) : selectedParticipant ? (
+            <div className="grid gap-2 text-sm font-bold text-slate-700 md:grid-cols-4">
+              <p>Code: {selectedParticipant.participant_code}</p>
+              <p>Name: {participantName(selectedParticipant)}</p>
+              <p>Phone: {selectedParticipant.phone_number ?? "—"}</p>
+              <p>
+                Channel: {selectedParticipant.metadata?.preferred_channel ?? "app"}
               </p>
             </div>
+          ) : (
+            <p className="text-sm font-bold text-slate-600">
+              Participant: {participantCode ?? participantId}
+            </p>
+          )}
+        </CompactCard>
+      ) : null}
 
-            <div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+        <CompactCard
+          title="Create schedule"
+          action={
+            <>
               <input
                 ref={bulkInputRef}
                 type="file"
@@ -1044,93 +929,90 @@ function SchedulerPageContent() {
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
-                  if (file) handleBulkScheduleFile(file);
+                  if (file) void handleBulkScheduleFile(file);
                 }}
               />
-
-              <button
-                type="button"
+              <PrimaryButton
+                disabled={bulkBusy || !activeProjectId}
                 onClick={() => bulkInputRef.current?.click()}
-                disabled={bulkBusy}
-                className="rounded-2xl border-2 border-[#171717] bg-[#FFF7F2] px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717] disabled:opacity-60"
               >
-                {bulkBusy ? "Uploading..." : "Bulk schedule upload"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mb-4 rounded-[1.5rem] border-2 border-slate-200 bg-[#EEF3FB] p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                {bulkBusy ? "Uploading..." : "Bulk upload"}
+              </PrimaryButton>
+            </>
+          }
+        >
+          <div className="mb-4 rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3">
+            <p className="text-xs font-black uppercase text-slate-500">
               Recipients
             </p>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <label className="flex cursor-pointer items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
                 <input
                   type="radio"
                   checked={recipientMode === "one"}
                   onChange={() => setRecipientMode("one")}
                   disabled={!!participantId}
                 />
-                One participant
+                One
               </label>
 
-              <label className="flex cursor-pointer items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
                 <input
                   type="radio"
                   checked={recipientMode === "selected"}
                   onChange={() => setRecipientMode("selected")}
                   disabled={!!participantId}
                 />
-                Selected participants
+                Selected
               </label>
 
-              <label className="flex cursor-pointer items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
                 <input
                   type="radio"
                   checked={recipientMode === "all"}
                   onChange={() => setRecipientMode("all")}
                   disabled={!!participantId}
                 />
-                All loaded active participants
+                All active
               </label>
             </div>
 
             {!participantId && recipientMode === "one" ? (
               <div className="mt-3">
-                <label className="px-1 text-xs font-black uppercase text-slate-500">
-                  Select participant
-                </label>
-                <select
-                  value={manualParticipantId}
-                  onChange={(event) => setManualParticipantId(event.target.value)}
-                  className="mt-1.5 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                >
-                  <option value="">Select participant</option>
-                  {activeParticipants.map((participant) => (
-                    <option key={participant.id} value={participant.id}>
-                      {participant.participant_code}
-                      {participant.phone_number ? ` - ${participant.phone_number}` : ""}
-                    </option>
-                  ))}
-                </select>
+                <FieldLabel label="Participant">
+                  <SelectInput
+                    value={manualParticipantId}
+                    onChange={(event) => setManualParticipantId(event.target.value)}
+                  >
+                    <option value="">Select participant</option>
+                    {activeParticipants.map((participant) => (
+                      <option key={participant.id} value={participant.id}>
+                        {participant.participant_code}
+                        {participant.phone_number
+                          ? ` - ${participant.phone_number}`
+                          : ""}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </FieldLabel>
               </div>
             ) : null}
 
             {!participantId && recipientMode === "selected" ? (
               <div className="mt-3 space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  <input
+                  <TextInput
                     value={participantSearch}
                     onChange={(event) => setParticipantSearch(event.target.value)}
-                    placeholder="Search participants by code, phone, language or channel"
-                    className="min-w-[260px] flex-1 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
+                    placeholder="Search participants"
+                    className="min-w-[260px] flex-1"
                   />
 
                   <button
                     type="button"
                     onClick={selectFilteredParticipants}
-                    className="rounded-2xl border-2 border-[#171717] bg-white px-4 py-3 text-sm font-black text-[#171717]"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
                   >
                     Select filtered
                   </button>
@@ -1138,32 +1020,32 @@ function SchedulerPageContent() {
                   <button
                     type="button"
                     onClick={clearSelectedParticipants}
-                    className="rounded-2xl border-2 border-[#171717] bg-[#FFF7F2] px-4 py-3 text-sm font-black text-[#171717]"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
                   >
                     Clear
                   </button>
                 </div>
 
                 <p className="text-xs font-bold text-slate-500">
-                  Showing {filteredParticipants.length} participant(s). Selected:{" "}
+                  Showing {filteredParticipants.length}. Selected:{" "}
                   {selectedParticipantIds.length}.
                 </p>
 
-                <div className="max-h-64 overflow-auto rounded-2xl border-2 border-slate-200 bg-white">
+                <div className="max-h-56 overflow-auto rounded-2xl border border-slate-200 bg-white">
                   {loadingParticipants ? (
                     <p className="p-4 text-sm font-bold text-slate-500">
-                      Loading participants...
+                      Loading...
                     </p>
                   ) : filteredParticipants.length === 0 ? (
                     <p className="p-4 text-sm font-bold text-slate-500">
-                      No participants found.
+                      No participants.
                     </p>
                   ) : (
                     <div className="divide-y divide-slate-100">
                       {filteredParticipants.map((participant) => (
                         <label
                           key={participant.id}
-                          className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                          className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-[#FFF7F2]"
                         >
                           <span>
                             <input
@@ -1190,69 +1072,62 @@ function SchedulerPageContent() {
               </div>
             ) : null}
 
-            {!participantId && recipientMode === "all" ? (
-              <p className="mt-3 rounded-2xl border-2 border-orange-200 bg-orange-50 px-4 py-3 text-sm font-bold text-orange-800">
-  This will create schedules for the currently loaded active participant(s).
-  Use bulk upload for larger participant lists.
-</p>
-            ) : null}
-
             {recipientMode === "one" && currentManualParticipant ? (
               <p className="mt-3 text-xs font-bold text-slate-600">
-                Current recipient: {currentManualParticipant.participant_code}
+                Recipient: {currentManualParticipant.participant_code}
               </p>
             ) : null}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <input
-              value={messageCode}
-              onChange={(event) => setMessageCode(event.target.value)}
-              placeholder="Message code"
-              className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-            />
+          <div className="grid gap-3 md:grid-cols-2">
+            <FieldLabel label="Message code">
+              <TextInput
+                value={messageCode}
+                onChange={(event) => setMessageCode(event.target.value)}
+                placeholder="HTN-W01-MON"
+              />
+            </FieldLabel>
 
-            <input
-              value={messageTitle}
-              onChange={(event) => setMessageTitle(event.target.value)}
-              placeholder="Message title"
-              className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-            />
+            <FieldLabel label="Message title">
+              <TextInput
+                value={messageTitle}
+                onChange={(event) => setMessageTitle(event.target.value)}
+                placeholder="Short title"
+              />
+            </FieldLabel>
 
-            <div className="flex flex-col gap-1">
-              <label className="px-1 text-xs font-black uppercase text-slate-500">
-                Schedule date/time
-              </label>
-              <input
+            <FieldLabel label="Schedule date/time">
+              <TextInput
                 type="datetime-local"
                 value={scheduleAt}
                 onChange={(event) => setScheduleAt(event.target.value)}
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
               />
-            </div>
+            </FieldLabel>
 
-            <select
-              value={channel}
-              onChange={(event) => setChannel(event.target.value as Channel)}
-              className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-            >
-              <option value="app">App / Push</option>
-              <option value="sms">SMS - Africa's Talking</option>
-              <option value="voice">Voice - Africa's Talking</option>
-              <option value="whatsapp">WhatsApp</option>
-            </select>
+            <FieldLabel label="Channel">
+              <SelectInput
+                value={channel}
+                onChange={(event) => setChannel(event.target.value as Channel)}
+              >
+                <option value="app">App / Push</option>
+                <option value="sms">SMS</option>
+                <option value="voice">Voice</option>
+                <option value="whatsapp">WhatsApp</option>
+              </SelectInput>
+            </FieldLabel>
 
-            <select
-              value={priority}
-              onChange={(event) => setPriority(event.target.value)}
-              className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-            >
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
+            <FieldLabel label="Priority">
+              <SelectInput
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+              >
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </SelectInput>
+            </FieldLabel>
 
-            <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black">
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
               <input
                 type="checkbox"
                 checked={respectQuietTime}
@@ -1260,156 +1135,36 @@ function SchedulerPageContent() {
               />
               Respect quiet time
             </label>
-
-            <button
-              type="button"
-              onClick={() => createManualSchedule()}
-              disabled={busy}
-              className="rounded-2xl border-2 border-[#171717] bg-[#FF5C1A] px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717] disabled:opacity-60"
-            >
-              {busy ? "Creating..." : "Create schedule"}
-            </button>
           </div>
 
           <textarea
             value={messageBody}
             onChange={(event) => setMessageBody(event.target.value)}
             placeholder="Message body"
-            className="mt-3 min-h-28 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
+            className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
           />
 
           {messageMediaNote ? (
-            <p className="mt-3 rounded-2xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
-              {messageMediaNote}
-            </p>
+            <Notice tone="info">{messageMediaNote}</Notice>
           ) : null}
 
-          {note ? (
-            <p className="mt-3 text-sm font-black text-slate-700">{note}</p>
-          ) : null}
-        </section>
+          <div className="mt-4">
+            <PrimaryButton disabled={busy || !activeProjectId} onClick={() => createManualSchedule()}>
+              {busy ? "Creating..." : "Create schedule"}
+            </PrimaryButton>
+          </div>
+        </CompactCard>
 
-        {editingSchedule ? (
-          <section className="rounded-[2rem] border-2 border-[#171717] bg-[#FFF7F2] p-5 shadow-[4px_4px_0_#171717]">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-black uppercase tracking-wide text-[#FF5C1A]">
-                  Edit schedule
-                </p>
-                <h2 className="text-xl font-black text-[#171717]">
-                  {editingSchedule.participant_code ??
-                    editingSchedule.participants?.participant_code ??
-                    "Participant"}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setEditingSchedule(null)}
-                className="rounded-2xl border-2 border-[#171717] bg-white px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717]"
-              >
-                Cancel edit
-              </button>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <input
-                value={editMessageCode}
-                onChange={(event) => setEditMessageCode(event.target.value)}
-                placeholder="Message code"
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-              />
-
-              <input
-                value={editMessageTitle}
-                onChange={(event) => setEditMessageTitle(event.target.value)}
-                placeholder="Message title"
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-              />
-
-              <div className="flex flex-col gap-1">
-                <label className="px-1 text-xs font-black uppercase text-slate-500">
-                  Schedule date/time
-                </label>
-                <input
-                  type="datetime-local"
-                  value={editScheduleAt}
-                  onChange={(event) => setEditScheduleAt(event.target.value)}
-                  className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                />
-              </div>
-
-              <select
-                value={editChannel}
-                onChange={(event) =>
-                  setEditChannel(event.target.value as Channel)
-                }
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-              >
-                <option value="app">App / Push</option>
-                <option value="sms">SMS - Africa's Talking</option>
-                <option value="voice">Voice - Africa's Talking</option>
-                <option value="whatsapp">WhatsApp</option>
-              </select>
-
-              <select
-                value={editPriority}
-                onChange={(event) => setEditPriority(event.target.value)}
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-              >
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-
-              <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black">
-                <input
-                  type="checkbox"
-                  checked={editRespectQuietTime}
-                  onChange={(event) =>
-                    setEditRespectQuietTime(event.target.checked)
-                  }
-                />
-                Respect quiet time
-              </label>
-
-              <button
-                type="button"
-                onClick={saveEditedSchedule}
-                disabled={editBusy}
-                className="rounded-2xl border-2 border-[#171717] bg-[#FF5C1A] px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717] disabled:opacity-60"
-              >
-                {editBusy ? "Saving..." : "Save changes"}
-              </button>
-            </div>
-
-            <textarea
-              value={editMessageBody}
-              onChange={(event) => setEditMessageBody(event.target.value)}
-              placeholder="Message body"
-              className="mt-3 min-h-28 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-            />
-          </section>
-        ) : null}
-
-        <section className="rounded-[2rem] border-2 border-[#171717] bg-white p-5 shadow-[4px_4px_0_#171717]">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-[#171717]">
-                Unified schedule queue
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                All manual and bulk schedules appear here.
-              </p>
-            </div>
-
+        <CompactCard
+          title="Schedule queue"
+          action={
             <div className="flex flex-wrap gap-2">
-              <select
+              <SelectInput
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value)}
-                className="rounded-xl border-2 border-slate-200 px-3 py-2 text-sm font-bold"
+                className="w-auto"
               >
-                <option value="">All statuses</option>
+                <option value="">All</option>
                 <option value="pending">Pending</option>
                 <option value="queued">Queued</option>
                 <option value="sending">Sending</option>
@@ -1420,51 +1175,48 @@ function SchedulerPageContent() {
                 <option value="manual_follow_up">Manual follow-up</option>
                 <option value="cancelled">Cancelled</option>
                 <option value="archived">Archived</option>
-              </select>
+              </SelectInput>
 
               <button
                 type="button"
                 onClick={runDueMessagesNow}
                 disabled={runDueBusy}
-                className="rounded-xl border-2 border-[#171717] bg-[#FF5C1A] px-3 py-2 text-sm font-black text-[#171717] disabled:opacity-60"
+                className="rounded-xl bg-[#F26A21] px-3 py-2 text-xs font-black text-white disabled:opacity-60"
               >
-                {runDueBusy ? "Running..." : "Run due messages now"}
+                {runDueBusy ? "Running..." : "Run due"}
               </button>
 
               <button
                 type="button"
                 onClick={loadSchedules}
-                className="rounded-xl border-2 border-[#171717] px-3 py-2 text-sm font-black"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
               >
                 Refresh
               </button>
             </div>
-          </div>
-
-          <div className="overflow-hidden rounded-[1.25rem] border-2 border-slate-200">
+          }
+        >
+          <div className="overflow-hidden rounded-2xl border border-orange-100">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
+                <thead className="bg-[#FFF7F2]">
                   <tr>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
+                    <th className="px-3 py-3 text-left font-black text-slate-700">
                       Participant
                     </th>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
+                    <th className="px-3 py-3 text-left font-black text-slate-700">
                       Message
                     </th>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
+                    <th className="px-3 py-3 text-left font-black text-slate-700">
                       Channel
                     </th>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
-                      Schedule time
+                    <th className="px-3 py-3 text-left font-black text-slate-700">
+                      Time
                     </th>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
+                    <th className="px-3 py-3 text-left font-black text-slate-700">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
-                      Source
-                    </th>
-                    <th className="px-4 py-3 text-left font-black text-slate-700">
+                    <th className="px-3 py-3 text-left font-black text-slate-700">
                       Actions
                     </th>
                   </tr>
@@ -1474,49 +1226,49 @@ function SchedulerPageContent() {
                   {loadingSchedules ? (
                     <tr>
                       <td
-                        colSpan={7}
-                        className="px-4 py-8 text-sm font-bold text-slate-500"
+                        colSpan={6}
+                        className="px-3 py-8 text-sm font-bold text-slate-500"
                       >
-                        Loading schedules...
+                        Loading...
                       </td>
                     </tr>
                   ) : schedules.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={7}
-                        className="px-4 py-8 text-sm font-bold text-slate-500"
+                        colSpan={6}
+                        className="px-3 py-8 text-sm font-bold text-slate-500"
                       >
-                        No schedules found.
+                        No schedules.
                       </td>
                     </tr>
                   ) : (
                     schedules.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-slate-700">
+                      <tr key={row.id} className="hover:bg-[#FFF7F2]">
+                        <td className="px-3 py-3 font-bold text-slate-700">
                           {row.participant_code ??
                             row.participants?.participant_code ??
                             "—"}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          <p className="font-black">
-                            {row.message_code ?? "—"}
-                          </p>
+
+                        <td className="px-3 py-3 text-slate-700">
+                          <p className="font-black">{row.message_code ?? "—"}</p>
                           <p className="text-xs font-semibold text-slate-500">
                             {row.message_title ?? "—"}
                           </p>
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-700">
-                          {row.resolved_channel ??
-                            row.requested_channel ??
-                            "—"}{" "}
+
+                        <td className="px-3 py-3 font-bold text-slate-700">
+                          {row.resolved_channel ?? row.requested_channel ?? "—"}
                           <span className="text-xs text-slate-400">
-                            {row.provider ? `(${row.provider})` : ""}
+                            {row.provider ? ` (${row.provider})` : ""}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-700">
+
+                        <td className="px-3 py-3 font-bold text-slate-700">
                           {dt(row.scheduled_for)}
                         </td>
-                        <td className="px-4 py-3 font-black text-slate-700">
+
+                        <td className="px-3 py-3 font-black text-slate-700">
                           {row.status ?? "—"}
                           {row.last_error ? (
                             <p className="mt-1 text-xs font-bold text-red-600">
@@ -1524,15 +1276,8 @@ function SchedulerPageContent() {
                             </p>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-700">
-                          {row.source_type ?? "—"}
-                          {row.delivery_mode === "app_only" ? (
-                            <p className="mt-1 text-xs font-black text-[#FF5C1A]">
-                              App only
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3">
+
+                        <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
@@ -1541,7 +1286,7 @@ function SchedulerPageContent() {
                                 row.status === "sent" ||
                                 row.status === "archived"
                               }
-                              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-black text-slate-700 hover:border-[#171717] disabled:opacity-50"
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21] disabled:opacity-50"
                             >
                               Edit
                             </button>
@@ -1550,7 +1295,7 @@ function SchedulerPageContent() {
                               type="button"
                               onClick={() => archiveSchedule(row)}
                               disabled={row.status === "archived"}
-                              className="rounded-lg border border-slate-300 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#171717] disabled:opacity-50"
+                              className="rounded-lg border border-slate-200 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21] disabled:opacity-50"
                             >
                               Archive
                             </button>
@@ -1563,14 +1308,88 @@ function SchedulerPageContent() {
               </table>
             </div>
           </div>
-
-          <p className="mt-3 text-xs font-bold text-slate-500">
-  Showing the latest 50 schedule records. Use status filters and refresh to
-  review queue updates.
-</p>
-        </section>
+        </CompactCard>
       </div>
-    </main>
+
+      {editingSchedule ? (
+        <CompactCard title="Edit schedule">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <FieldLabel label="Message code">
+              <TextInput
+                value={editMessageCode}
+                onChange={(event) => setEditMessageCode(event.target.value)}
+              />
+            </FieldLabel>
+
+            <FieldLabel label="Message title">
+              <TextInput
+                value={editMessageTitle}
+                onChange={(event) => setEditMessageTitle(event.target.value)}
+              />
+            </FieldLabel>
+
+            <FieldLabel label="Schedule date/time">
+              <TextInput
+                type="datetime-local"
+                value={editScheduleAt}
+                onChange={(event) => setEditScheduleAt(event.target.value)}
+              />
+            </FieldLabel>
+
+            <FieldLabel label="Channel">
+              <SelectInput
+                value={editChannel}
+                onChange={(event) => setEditChannel(event.target.value as Channel)}
+              >
+                <option value="app">App / Push</option>
+                <option value="sms">SMS</option>
+                <option value="voice">Voice</option>
+                <option value="whatsapp">WhatsApp</option>
+              </SelectInput>
+            </FieldLabel>
+
+            <FieldLabel label="Priority">
+              <SelectInput
+                value={editPriority}
+                onChange={(event) => setEditPriority(event.target.value)}
+              >
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </SelectInput>
+            </FieldLabel>
+
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
+              <input
+                type="checkbox"
+                checked={editRespectQuietTime}
+                onChange={(event) => setEditRespectQuietTime(event.target.checked)}
+              />
+              Respect quiet time
+            </label>
+
+            <PrimaryButton disabled={editBusy} onClick={saveEditedSchedule}>
+              {editBusy ? "Saving..." : "Save changes"}
+            </PrimaryButton>
+
+            <button
+              type="button"
+              onClick={() => setEditingSchedule(null)}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <textarea
+            value={editMessageBody}
+            onChange={(event) => setEditMessageBody(event.target.value)}
+            placeholder="Message body"
+            className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+          />
+        </CompactCard>
+      ) : null}
+    </PageShell>
   );
 }
 

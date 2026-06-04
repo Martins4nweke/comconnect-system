@@ -2,11 +2,20 @@ import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
 
 type Channel = "app" | "sms" | "voice" | "whatsapp";
 
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function normaliseChannel(value: unknown): Channel | null {
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = cleanText(value).toLowerCase();
 
   if (text === "push" || text === "app_push") return "app";
   if (["app", "sms", "voice", "whatsapp"].includes(text)) {
@@ -19,7 +28,7 @@ function normaliseChannel(value: unknown): Channel | null {
 function boolValue(value: unknown, fallback: boolean) {
   if (typeof value === "boolean") return value;
 
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = cleanText(value).toLowerCase();
 
   if (["true", "yes", "1", "y"].includes(text)) return true;
   if (["false", "no", "0", "n"].includes(text)) return false;
@@ -42,11 +51,20 @@ function resolveAllowedChannels(sourceType: string, value: unknown): Channel[] {
   if (isAppOnlySource(sourceType)) return ["app"];
 
   if (Array.isArray(value)) {
-    const channels = value
-      .map(normaliseChannel)
+    const channels = value.map(normaliseChannel).filter(Boolean) as Channel[];
+
+    return channels.length > 0 ? Array.from(new Set(channels)) : ["app", "sms", "voice"];
+  }
+
+  const text = cleanText(value);
+
+  if (text) {
+    const channels = text
+      .split(/[|,;]/)
+      .map((item) => normaliseChannel(item))
       .filter(Boolean) as Channel[];
 
-    return channels.length > 0 ? channels : ["app", "sms", "voice"];
+    return channels.length > 0 ? Array.from(new Set(channels)) : ["app", "sms", "voice"];
   }
 
   return ["app", "sms", "voice"];
@@ -54,7 +72,7 @@ function resolveAllowedChannels(sourceType: string, value: unknown): Channel[] {
 
 function resolveDeliveryMode(sourceType: string, value: unknown) {
   if (isAppOnlySource(sourceType)) return "app_only";
-  return String(value ?? "participant_preference");
+  return cleanText(value) || "participant_preference";
 }
 
 function resolveRequestedChannel({
@@ -84,89 +102,123 @@ function resolveRequestedChannel({
   return allowedChannels[0] ?? "app";
 }
 
-async function resolveParticipant(body: any) {
-  const participantId = body?.participant_id
-    ? String(body.participant_id).trim()
-    : "";
+function canWriteSchedules(context: Awaited<ReturnType<typeof getScopedContext>>) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
 
-  if (participantId) {
-    const { data, error } = await supabaseAdmin
-      .from("participants")
-      .select("*, projects(project_code)")
-      .eq("id", participantId)
-      .single();
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    ["project_manager", "research_assistant", "data_manager", "clinician", "nurse"].includes(
+      projectRole
+    )
+  );
+}
 
-    if (error || !data) throw new Error("Participant not found");
-    return data;
-  }
+async function resolveParticipant(
+  body: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const participantId = cleanText(body?.participant_id);
+  const participantCode = cleanText(body?.participant_code);
+  const projectCode = cleanText(body?.project_code);
+  const activeProjectId = cleanText(context.active_project_id);
 
-  const participantCode = body?.participant_code
-    ? String(body.participant_code).trim()
-    : "";
-
-  const projectCode = body?.project_code
-    ? String(body.project_code).trim()
-    : "";
-
-  if (!participantCode || !projectCode) {
-    throw new Error("participant_id or project_code + participant_code is required");
-  }
-
-  const { data: project, error: projectError } = await supabaseAdmin
-    .from("projects")
-    .select("id")
-    .eq("project_code", projectCode)
-    .single();
-
-  if (projectError || !project) {
-    throw new Error("Project code not found");
-  }
-
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from("participants")
     .select("*, projects(project_code)")
-    .eq("project_id", project.id)
-    .eq("participant_code", participantCode)
-    .single();
+    .eq("organisation_id", context.organisation_id);
 
-  if (error || !data) throw new Error("Participant not found");
+  if (activeProjectId) {
+    query = query.eq("project_id", activeProjectId);
+  } else if (context.allowed_project_ids.length > 0) {
+    query = query.in("project_id", context.allowed_project_ids);
+  } else {
+    throw new Error("No accessible project found.");
+  }
+
+  if (participantId) {
+    query = query.eq("id", participantId);
+  } else if (participantCode) {
+    query = query.eq("participant_code", participantCode);
+
+    if (projectCode) {
+      const project = context.allowed_projects.find(
+        (item: any) => item.project_code === projectCode
+      );
+
+      if (!project?.id) {
+        throw new Error("Project code not found or not allowed.");
+      }
+
+      query = query.eq("project_id", project.id);
+    }
+  } else {
+    throw new Error("participant_id or participant_code is required");
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error || !data) {
+    throw new Error("Participant not found or not allowed.");
+  }
 
   return data;
 }
 
 export async function GET(req: NextRequest) {
-  const projectId = req.nextUrl.searchParams.get("project_id");
-  const participantId = req.nextUrl.searchParams.get("participant_id");
-  const status = req.nextUrl.searchParams.get("status");
-  const limit = Number(req.nextUrl.searchParams.get("limit") ?? 50);
+  try {
+    const context = await getScopedContext(req);
 
-  let query = supabaseAdmin
-    .from("communication_schedules")
-    .select("*, participants(participant_code, phone_number, metadata)")
-    .order("scheduled_for", { ascending: false })
-    .limit(Math.min(Math.max(limit, 1), 200));
+    const participantId = cleanText(req.nextUrl.searchParams.get("participant_id"));
+    const status = cleanText(req.nextUrl.searchParams.get("status"));
+    const limit = Number(req.nextUrl.searchParams.get("limit") ?? 50);
 
-  if (projectId) query = query.eq("project_id", projectId);
-  if (participantId) query = query.eq("participant_id", participantId);
-  if (status) query = query.eq("status", status);
+    let query = supabaseAdmin
+      .from("communication_schedules")
+      .select("*, participants(participant_code, phone_number, metadata)")
+      .eq("organisation_id", context.organisation_id)
+      .order("scheduled_for", { ascending: false })
+      .limit(Math.min(Math.max(limit, 1), 200));
 
-  const { data, error } = await query;
+    if (context.active_project_id) {
+      query = query.eq("project_id", context.active_project_id);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
+    }
 
-  if (error) return fail(error.message, 500);
+    if (participantId) query = query.eq("participant_id", participantId);
+    if (status) query = query.eq("status", status);
 
-  return ok(data ?? []);
+    const { data, error } = await query;
+
+    if (error) return fail(error.message, 500);
+
+    return ok(data ?? []);
+  } catch (error: any) {
+    return fail(error?.message ?? "Failed to load schedules", 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-
-  if (!body?.scheduled_for) {
-    return fail("scheduled_for is required");
-  }
-
   try {
-    const participant = await resolveParticipant(body);
-    const sourceType = String(body.source_type ?? "manual_message");
+    const context = await getScopedContext(req);
+
+    if (!canWriteSchedules(context)) {
+      return fail("You do not have permission to create schedules.", 403);
+    }
+
+    const body = await req.json().catch(() => null);
+
+    if (!body?.scheduled_for) {
+      return fail("scheduled_for is required", 400);
+    }
+
+    const participant = await resolveParticipant(body, context);
+
+    const sourceType = cleanText(body.source_type) || "manual_message";
     const deliveryMode = resolveDeliveryMode(sourceType, body.delivery_mode);
     const allowedChannels = resolveAllowedChannels(
       sourceType,
@@ -186,7 +238,7 @@ export async function POST(req: NextRequest) {
     });
 
     const schedulePayload = {
-      organisation_id: participant.organisation_id,
+      organisation_id: context.organisation_id,
       project_id: participant.project_id,
       participant_id: participant.id,
       participant_code: participant.participant_code,
