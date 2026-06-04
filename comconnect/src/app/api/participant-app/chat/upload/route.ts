@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 
 const DEFAULT_BUCKET = "participant-chat-media";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
@@ -44,8 +45,10 @@ function extensionFromMime(mimeType: string, mediaType: string) {
   if (mime.includes("aac")) return "aac";
   if (mime.includes("m4a")) return "m4a";
   if (mime.includes("jpeg")) return "jpg";
+  if (mime.includes("jpg")) return "jpg";
   if (mime.includes("png")) return "png";
   if (mime.includes("heic")) return "heic";
+  if (mime.includes("gif")) return "gif";
 
   if (mediaType === "audio") return "m4a";
   if (mediaType === "video") return "mp4";
@@ -61,6 +64,38 @@ function mediaLabel(mediaType: string) {
   return "Media";
 }
 
+function inboxTitleForMedia(mediaType: string) {
+  if (mediaType === "audio") return "Voice note received";
+  if (mediaType === "video") return "Video received";
+  if (mediaType === "image") return "Image received";
+  return "Media received";
+}
+
+function inboxSummaryForMedia(mediaType: string, messageText: string) {
+  const label = mediaLabel(mediaType).toLowerCase();
+
+  if (messageText) return messageText;
+
+  return `Participant sent a ${label}. Open the chat thread to view it.`;
+}
+
+async function getStorageUrl(params: {
+  bucket: string;
+  storagePath: string;
+}) {
+  const { data: signedData } = await supabaseAdmin.storage
+    .from(params.bucket)
+    .createSignedUrl(params.storagePath, SIGNED_URL_SECONDS);
+
+  if (signedData?.signedUrl) return signedData.signedUrl;
+
+  const { data: publicData } = supabaseAdmin.storage
+    .from(params.bucket)
+    .getPublicUrl(params.storagePath);
+
+  return publicData?.publicUrl ?? null;
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireParticipantSession(req);
   if (auth.ok === false) return auth.response;
@@ -71,13 +106,16 @@ export async function POST(req: NextRequest) {
     const file = form.get("file");
     const mediaType = normaliseMediaType(form.get("media_type"));
     const messageText = cleanText(form.get("message_text"));
+
     const createdOfflineAtValue = form.get("created_offline_at");
-const createdOfflineAt =
-  typeof createdOfflineAtValue === "string" && createdOfflineAtValue.trim()
-    ? createdOfflineAtValue.trim()
-    : null;
+    const createdOfflineAt =
+      typeof createdOfflineAtValue === "string" && createdOfflineAtValue.trim()
+        ? createdOfflineAtValue.trim()
+        : null;
+
     const localId =
       cleanText(form.get("local_id")) || `chat-media:${Date.now()}`;
+
     const requestedThreadId = cleanText(form.get("thread_id")) || null;
 
     if (!file || !(file instanceof File)) {
@@ -148,19 +186,23 @@ const createdOfflineAt =
 
     const bucket = cleanText(process.env.CHAT_MEDIA_BUCKET) || DEFAULT_BUCKET;
     const now = new Date().toISOString();
+
     const originalName = safeFileName(file.name || `${mediaType}-${Date.now()}`);
+
     const extension = originalName.includes(".")
       ? originalName.split(".").pop()
       : extensionFromMime(mimeType, mediaType);
+
+    const fileNameWithExtension = originalName.includes(".")
+      ? originalName
+      : `${originalName}.${extension}`;
 
     const storagePath = [
       auth.context.organisation_id,
       auth.context.project_id,
       auth.context.participant_id,
       threadId,
-      `${Date.now()}-${safeFileName(originalName)}${
-        originalName.includes(".") ? "" : `.${extension}`
-      }`,
+      `${Date.now()}-${safeFileName(fileNameWithExtension)}`,
     ]
       .filter(Boolean)
       .join("/");
@@ -179,19 +221,46 @@ const createdOfflineAt =
       return fail(uploadError.message, 500);
     }
 
+    const mediaUrl = await getStorageUrl({
+      bucket,
+      storagePath,
+    });
+
     const mediaPayload = {
       media_type: mediaType,
+      message_type: mediaType,
+      media_url: mediaUrl,
+      url: mediaUrl,
       bucket,
+      storage_bucket: bucket,
       storage_path: storagePath,
-      file_name: originalName,
+      file_name: fileNameWithExtension,
+      media_filename: fileNameWithExtension,
       mime_type: mimeType,
+      media_mime_type: mimeType,
       file_size: file.size,
+      media_size: file.size,
       uploaded_at: now,
       source: "participant_app_chat_upload",
     };
 
     const finalMessageText =
       messageText || `${mediaLabel(mediaType)} received from participant.`;
+
+    const messagePayload = {
+      message_text: finalMessageText,
+      message_type: mediaType,
+
+      media_type: mediaType,
+      media_url: mediaUrl,
+      media_mime_type: mimeType,
+      media_filename: fileNameWithExtension,
+      media_size: file.size,
+      storage_bucket: bucket,
+      storage_path: storagePath,
+
+      media: mediaPayload,
+    };
 
     const { data: message, error: messageError } = await supabaseAdmin
       .from("chat_messages")
@@ -204,11 +273,7 @@ const createdOfflineAt =
           sender_type: "participant",
           local_id: localId,
           message_text: finalMessageText,
-          payload: {
-            message_text: finalMessageText,
-            message_type: mediaType,
-            media: mediaPayload,
-          },
+          payload: messagePayload,
           created_offline_at: createdOfflineAt,
           synced_at: now,
         },
@@ -234,20 +299,21 @@ const createdOfflineAt =
     }
 
     const { error: inboxError } = await supabaseAdmin.from("inbox_items").insert({
-  organisation_id: auth.context.organisation_id,
-  project_id: auth.context.project_id,
-  participant_id: auth.context.participant_id,
-  source_type: "chat_message",
-  source_id: message.id,
-  title: `New ${mediaLabel(mediaType).toLowerCase()} chat message`,
-  summary: finalMessageText,
-  priority: mediaType === "video" ? "medium" : "normal",
-  status: "open",
-});
+      organisation_id: auth.context.organisation_id,
+      project_id: auth.context.project_id,
+      participant_id: auth.context.participant_id,
+      source_type: "chat_message",
+      source_id: message.id,
+      title: inboxTitleForMedia(mediaType),
+      summary: inboxSummaryForMedia(mediaType, messageText),
+      priority: mediaType === "video" ? "medium" : "normal",
+      status: "open",
+    });
 
-if (inboxError) {
-  return fail(inboxError.message, 500);
-}
+    if (inboxError) {
+      return fail(inboxError.message, 500);
+    }
+
     await recordParticipantActivity(
       auth.context,
       "chat_media_sent",
@@ -258,6 +324,7 @@ if (inboxError) {
         message_id: message.id,
         message_text: finalMessageText,
         media: mediaPayload,
+        payload: messagePayload,
         source: "participant_app_chat_upload",
       },
       localId,

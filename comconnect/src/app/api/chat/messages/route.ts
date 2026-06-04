@@ -4,8 +4,12 @@ import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
 import { sendParticipantPushNotification } from "@/lib/participant-app/notifications/push";
 
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function normaliseSenderType(value: unknown) {
-  const senderType = String(value ?? "staff").trim();
+  const senderType = cleanText(value).toLowerCase();
 
   if (senderType === "participant") return "participant";
   if (senderType === "staff") return "staff";
@@ -14,23 +18,36 @@ function normaliseSenderType(value: unknown) {
   return "staff";
 }
 
+function normalisePayload(value: unknown, messageText: string) {
+  const payload =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, any>)
+      : {};
+
+  return {
+    ...payload,
+    message_type: payload.message_type ?? "text",
+    message_text: payload.message_text ?? messageText,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
 
-  if (!body?.thread_id) {
-    return fail("thread_id is required");
+  if (!body) {
+    return fail("Invalid chat message payload", 400);
   }
 
-  if (!body?.message_text) {
-    return fail("message_text is required");
-  }
-
-  const threadId = String(body.thread_id);
-  const messageText = String(body.message_text).trim();
+  const threadId = cleanText(body.thread_id);
+  const messageText = cleanText(body.message_text);
   const senderType = normaliseSenderType(body.sender_type);
 
+  if (!threadId) {
+    return fail("thread_id is required", 400);
+  }
+
   if (!messageText) {
-    return fail("message_text is required");
+    return fail("message_text is required", 400);
   }
 
   const { data: thread, error: threadError } = await supabaseAdmin
@@ -49,6 +66,8 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString();
 
+  const payload = normalisePayload(body.payload, messageText);
+
   const { data: message, error: messageError } = await supabaseAdmin
     .from("chat_messages")
     .insert({
@@ -58,9 +77,9 @@ export async function POST(req: NextRequest) {
       participant_id: thread.participant_id,
       sender_type: senderType,
       sender_user_id: body.sender_user_id ?? null,
-      local_id: body.local_id ?? `staff-chat:${thread.id}:${Date.now()}`,
+      local_id: cleanText(body.local_id) || `staff-chat:${thread.id}:${Date.now()}`,
       message_text: messageText,
-      payload: body.payload ?? {},
+      payload,
       created_offline_at: null,
       synced_at: now,
     })
@@ -101,6 +120,7 @@ export async function POST(req: NextRequest) {
         screen: "chat",
         thread_id: thread.id,
         message_id: message.id,
+        message_type: "text",
       },
     });
   } catch (pushError: any) {
@@ -120,6 +140,7 @@ export async function POST(req: NextRequest) {
     metadata: {
       message_id: message.id,
       sender_type: senderType,
+      message_type: "text",
       push_result: pushResult,
     },
   });

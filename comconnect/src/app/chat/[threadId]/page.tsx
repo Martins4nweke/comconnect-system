@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
+type ChatPayload = Record<string, any>;
+
 type ChatMessage = {
   id: string;
   thread_id: string;
@@ -11,7 +13,7 @@ type ChatMessage = {
   sender_type?: string | null;
   sender_user_id?: string | null;
   message_text?: string | null;
-  payload?: Record<string, unknown> | null;
+  payload?: ChatPayload | null;
   created_at?: string | null;
   synced_at?: string | null;
   read_at?: string | null;
@@ -37,6 +39,10 @@ type ChatThread = {
   chat_messages?: ChatMessage[];
 };
 
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "Not recorded";
 
@@ -57,6 +63,190 @@ function messageLabel(message: ChatMessage) {
   if (message.sender_type === "staff") return "Study team";
   if (message.sender_type === "admin") return "Study team";
   return "Study team";
+}
+
+function getMessageType(message: ChatMessage) {
+  const payload = message.payload ?? {};
+
+  const raw = cleanText(
+    payload.message_type ??
+      payload.media_type ??
+      payload.media?.message_type ??
+      payload.media?.media_type
+  ).toLowerCase();
+
+  if (raw === "audio" || raw === "voice" || raw === "voice_note") return "audio";
+  if (raw === "image" || raw === "photo") return "image";
+  if (raw === "video") return "video";
+  if (raw === "file") return "file";
+
+  return "text";
+}
+
+function getMediaUrl(message: ChatMessage) {
+  const payload = message.payload ?? {};
+
+  return cleanText(
+    payload.media_url ??
+      payload.url ??
+      payload.file_url ??
+      payload.media?.media_url ??
+      payload.media?.url ??
+      payload.media?.file_url
+  );
+}
+
+function getMediaMimeType(message: ChatMessage) {
+  const payload = message.payload ?? {};
+
+  return cleanText(
+    payload.media_mime_type ??
+      payload.mime_type ??
+      payload.media?.media_mime_type ??
+      payload.media?.mime_type
+  );
+}
+
+function getMediaFileName(message: ChatMessage) {
+  const payload = message.payload ?? {};
+
+  return (
+    cleanText(
+      payload.media_filename ??
+        payload.file_name ??
+        payload.media?.media_filename ??
+        payload.media?.file_name
+    ) || "media file"
+  );
+}
+
+function getMessageText(message: ChatMessage) {
+  const payload = message.payload ?? {};
+
+  return cleanText(
+    payload.message_text ??
+      payload.text ??
+      message.message_text ??
+      ""
+  );
+}
+
+function mediaTitle(type: string) {
+  if (type === "audio") return "Voice note";
+  if (type === "image") return "Image";
+  if (type === "video") return "Video";
+  if (type === "file") return "File";
+  return "Message";
+}
+
+function MediaMessageContent({ message }: { message: ChatMessage }) {
+  const type = getMessageType(message);
+  const mediaUrl = getMediaUrl(message);
+  const mimeType = getMediaMimeType(message);
+  const fileName = getMediaFileName(message);
+  const messageText = getMessageText(message);
+
+  if (type === "text") {
+    return (
+      <p className="mt-1 whitespace-pre-wrap text-sm font-bold leading-6">
+        {messageText}
+      </p>
+    );
+  }
+
+  if (!mediaUrl) {
+    return (
+      <div className="mt-2 rounded-2xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-800">
+        {mediaTitle(type)} was received, but no playable media URL is available.
+        {messageText ? (
+          <p className="mt-2 whitespace-pre-wrap">{messageText}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (type === "audio") {
+    return (
+      <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <p className="mb-2 text-xs font-black uppercase text-slate-500">
+          Voice note
+        </p>
+        <audio controls src={mediaUrl} className="w-full">
+          Your browser does not support audio playback.
+        </audio>
+        {messageText ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6">
+            {messageText}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (type === "image") {
+    return (
+      <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <p className="mb-2 text-xs font-black uppercase text-slate-500">
+          Image
+        </p>
+        <a href={mediaUrl} target="_blank" rel="noreferrer">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={mediaUrl}
+            alt={fileName}
+            className="max-h-80 w-full rounded-xl object-contain"
+          />
+        </a>
+        {messageText ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6">
+            {messageText}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (type === "video") {
+    return (
+      <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <p className="mb-2 text-xs font-black uppercase text-slate-500">
+          Video
+        </p>
+        <video controls src={mediaUrl} className="max-h-96 w-full rounded-xl">
+          Your browser does not support video playback.
+        </video>
+        {messageText ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6">
+            {messageText}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <p className="mb-2 text-xs font-black uppercase text-slate-500">
+        File
+      </p>
+      <a
+        href={mediaUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex rounded-xl bg-[#F26A21] px-3 py-2 text-xs font-black text-white"
+      >
+        Open {fileName}
+      </a>
+      {mimeType ? (
+        <p className="mt-2 text-xs font-bold text-slate-500">{mimeType}</p>
+      ) : null}
+      {messageText ? (
+        <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6">
+          {messageText}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 export default function ChatThreadDetailPage() {
@@ -133,6 +323,10 @@ export default function ChatThreadDetailPage() {
           thread_id: threadId,
           message_text: trimmed,
           sender_type: "team",
+          payload: {
+            message_type: "text",
+            message_text: trimmed,
+          },
         }),
       });
 
@@ -204,8 +398,8 @@ export default function ChatThreadDetailPage() {
               Chat conversation
             </h1>
             <p className="mt-1 text-sm font-semibold text-slate-600">
-              View participant messages and send replies with app push
-              notification.
+              View participant text, voice notes, images, videos and send
+              replies with app push notification.
             </p>
           </div>
 
@@ -316,9 +510,9 @@ export default function ChatThreadDetailPage() {
                             ? participantName
                             : messageLabel(message)}
                         </p>
-                        <p className="mt-1 whitespace-pre-wrap text-sm font-bold leading-6">
-                          {message.message_text ?? ""}
-                        </p>
+
+                        <MediaMessageContent message={message} />
+
                         <p className="mt-2 text-xs font-bold text-slate-500">
                           {formatDate(
                             message.created_at ?? message.synced_at
