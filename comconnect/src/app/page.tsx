@@ -29,6 +29,17 @@ type DashboardData = {
   warnings?: string[];
 };
 
+type CurrentContext = {
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_id?: string | null;
+  active_project_name?: string | null;
+  project_role?: string | null;
+  allowed_projects?: any[];
+  dev_fallback?: boolean;
+};
+
 function numberText(value: unknown) {
   const n = Number(value ?? 0);
 
@@ -219,6 +230,7 @@ function QuickAction({
 
 export default function Page() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [context, setContext] = useState<CurrentContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
 
@@ -230,9 +242,41 @@ export default function Page() {
       setNote("");
 
       try {
-        const response = await fetch("/api/dashboard/overview", {
+        const contextResponse = await fetch("/api/context/current", {
           cache: "no-store",
         });
+
+        const contextJson = await contextResponse.json().catch(() => null);
+
+        if (!contextResponse.ok || !contextJson?.ok) {
+          throw new Error(
+            contextJson?.error ??
+              "Failed to load organisation/project context."
+          );
+        }
+
+        const currentContext = contextJson.data as CurrentContext;
+
+        if (!cancelled) {
+          setContext(currentContext);
+        }
+
+        const params = new URLSearchParams();
+
+        if (currentContext.organisation_id) {
+          params.set("organisation_id", currentContext.organisation_id);
+        }
+
+        if (currentContext.active_project_id) {
+          params.set("project_id", currentContext.active_project_id);
+        }
+
+        const response = await fetch(
+          `/api/dashboard/overview?${params.toString()}`,
+          {
+            cache: "no-store",
+          }
+        );
 
         const json = await response.json().catch(() => null);
 
@@ -274,10 +318,10 @@ export default function Page() {
 
   return (
     <VerticalAppShell
-      organisationRole="organisation_admin"
-      projectRole="project_manager"
-      organisationName="ComConnect Organisation"
-      projectName="Active Project"
+      organisationRole={context?.organisation_role ?? "organisation_admin"}
+      projectRole={context?.project_role ?? "project_manager"}
+      organisationName={context?.organisation_name ?? "ComConnect Organisation"}
+      projectName={context?.active_project_name ?? "Active Project"}
     >
       <main className="px-4 py-4 lg:px-5">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
