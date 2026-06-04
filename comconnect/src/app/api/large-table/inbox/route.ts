@@ -28,6 +28,10 @@ function labelForSourceType(sourceType?: string | null) {
       return "SMS reply";
     case "whatsapp_reply":
       return "WhatsApp reply";
+    case "voice_ivr_reply":
+      return "Voice IVR reply";
+    case "voice_recording_reply":
+      return "Voice recording reply";
     default:
       return sourceType ? sourceType.replaceAll("_", " ") : "Inbox item";
   }
@@ -53,12 +57,18 @@ function moduleForSourceType(sourceType?: string | null) {
       return "Referrals";
     case "education_response":
       return "Education";
+    case "voice_ivr_reply":
+    case "voice_recording_reply":
+      return "Voice";
     default:
       return "Inbox";
   }
 }
 
-function defaultHrefForSource(sourceType?: string | null, sourceId?: string | null) {
+function defaultHrefForSource(
+  sourceType?: string | null,
+  sourceId?: string | null
+) {
   if (!sourceType || !sourceId) return "/inbox";
 
   switch (sourceType) {
@@ -77,6 +87,8 @@ function defaultHrefForSource(sourceType?: string | null, sourceId?: string | nu
     case "app_message_reply":
     case "sms_reply":
     case "whatsapp_reply":
+    case "voice_ivr_reply":
+    case "voice_recording_reply":
       return "/inbox";
     default:
       return "/inbox";
@@ -93,7 +105,7 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-    query = applyCommonFilters(query, params);
+  query = applyCommonFilters(query, params);
 
   const search = textSearchOr(params.q, [
     "title",
