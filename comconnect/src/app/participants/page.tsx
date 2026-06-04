@@ -1,9 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LargeTableClient } from "@/components/comconnect-actions/LargeTableClient";
 import { tableConfigs } from "@/components/comconnect-actions/tableConfigs";
+import {
+  CompactCard,
+  FieldLabel,
+  LinkButton,
+  Notice,
+  PageHeader,
+  PageShell,
+  PrimaryButton,
+  SelectInput,
+  TextInput,
+} from "@/components/comconnect-ui/DashboardUI";
 
 type PreferredChannel = "app" | "sms" | "whatsapp" | "voice";
 type ParticipantStatus =
@@ -13,10 +24,64 @@ type ParticipantStatus =
   | "completed"
   | "archived";
 
+type ProjectOption = {
+  id: string;
+  name: string;
+  project_code?: string | null;
+};
+
+type CurrentContext = {
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_id?: string | null;
+  active_project_name?: string | null;
+  project_role?: string | null;
+  allowed_projects?: ProjectOption[];
+};
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function splitName(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+
+  return {
+    first_name: parts[0] ?? null,
+    last_name: parts.length > 1 ? parts.slice(1).join(" ") : null,
+  };
+}
+
+function parseCsv(text: string) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  const headers = lines[0]
+    .split(",")
+    .map((header) => header.trim())
+    .filter(Boolean);
+
+  return lines.slice(1).map((line) => {
+    const values = line.split(",").map((value) => value.trim());
+    const row: Record<string, string> = {};
+
+    headers.forEach((header, index) => {
+      row[header] = values[index] ?? "";
+    });
+
+    return row;
+  });
+}
+
 export default function Page() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [projectCode, setProjectCode] = useState("DEMO-001");
+  const [context, setContext] = useState<CurrentContext | null>(null);
   const [participantCode, setParticipantCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -28,47 +93,31 @@ export default function Page() {
   const [fallbackAllowed, setFallbackAllowed] = useState(true);
   const [appAccessEnabled, setAppAccessEnabled] = useState(true);
   const [quietTimeEnabled, setQuietTimeEnabled] = useState(true);
-  const [quietTimeStart, setQuietTimeStart] = useState("20:00");
-  const [quietTimeEnd, setQuietTimeEnd] = useState("07:00");
   const [status, setStatus] = useState<ParticipantStatus>("active");
   const [busy, setBusy] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  function splitName(value: string) {
-    const parts = value.trim().split(/\s+/).filter(Boolean);
+  const activeProjectId = cleanText(context?.active_project_id);
+  const activeProjectName =
+    context?.active_project_name ?? "Current project";
 
-    return {
-      first_name: parts[0] ?? null,
-      last_name: parts.length > 1 ? parts.slice(1).join(" ") : null,
-    };
-  }
-
-  function parseCsv(text: string) {
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    if (lines.length < 2) {
-      return [];
-    }
-
-    const headers = lines[0]
-      .split(",")
-      .map((header) => header.trim())
-      .filter(Boolean);
-
-    return lines.slice(1).map((line) => {
-      const values = line.split(",").map((value) => value.trim());
-      const row: Record<string, string> = {};
-
-      headers.forEach((header, index) => {
-        row[header] = values[index] ?? "";
+  async function loadContext() {
+    try {
+      const response = await fetch("/api/context/current", {
+        cache: "no-store",
       });
 
-      return row;
-    });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to load context.");
+      }
+
+      setContext(json.data as CurrentContext);
+    } catch (error: any) {
+      setMessage(error?.message ?? "Failed to load context.");
+    }
   }
 
   async function handleBulkFile(file: File) {
@@ -80,7 +129,7 @@ export default function Page() {
       const participants = parseCsv(text);
 
       if (participants.length === 0) {
-        throw new Error("No valid participant rows found in the CSV file.");
+        throw new Error("No valid participant rows found.");
       }
 
       const response = await fetch("/api/participants/bulk-upload", {
@@ -89,6 +138,7 @@ export default function Page() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          project_id: activeProjectId,
           participants,
           timezone: "Africa/Johannesburg",
         }),
@@ -101,18 +151,16 @@ export default function Page() {
       }
 
       setMessage(
-  `Bulk upload complete. Inserted ${
-    json.data?.inserted_count ?? 0
-  } participant(s). Skipped existing: ${
-    json.data?.skipped_existing_count ?? 0
-  }. Skipped duplicate rows: ${
-    json.data?.skipped_upload_duplicate_count ?? 0
-  }.`
-);
+        `Bulk upload complete. Inserted ${
+          json.data?.inserted_count ?? 0
+        }. Existing: ${
+          json.data?.skipped_existing_count ?? 0
+        }. Duplicates: ${
+          json.data?.skipped_upload_duplicate_count ?? 0
+        }.`
+      );
 
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 900);
+      window.setTimeout(() => window.location.reload(), 800);
     } catch (error: any) {
       setMessage(error?.message ?? "Bulk upload failed.");
     } finally {
@@ -127,8 +175,8 @@ export default function Page() {
   async function addParticipant() {
     setMessage("");
 
-    if (!projectCode.trim()) {
-      setMessage("Project code is required.");
+    if (!activeProjectId) {
+      setMessage("No active project selected.");
       return;
     }
 
@@ -148,7 +196,7 @@ export default function Page() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          project_code: projectCode.trim(),
+          project_id: activeProjectId,
           participant_code: participantCode.trim(),
           display_name: displayName.trim() || null,
           first_name: nameParts.first_name,
@@ -162,8 +210,8 @@ export default function Page() {
           preferred_channel: preferredChannel,
           fallback_allowed: fallbackAllowed,
           quiet_time_enabled: quietTimeEnabled,
-          quiet_time_start: quietTimeStart,
-          quiet_time_end: quietTimeEnd,
+          quiet_time_start: "20:00",
+          quiet_time_end: "07:00",
           timezone: "Africa/Johannesburg",
           source: "participants_page",
           metadata: {
@@ -178,7 +226,7 @@ export default function Page() {
         throw new Error(json?.error ?? "Failed to add participant.");
       }
 
-      setMessage("Participant added successfully.");
+      setMessage("Participant added.");
 
       setParticipantCode("");
       setDisplayName("");
@@ -190,13 +238,9 @@ export default function Page() {
       setFallbackAllowed(true);
       setAppAccessEnabled(true);
       setQuietTimeEnabled(true);
-      setQuietTimeStart("20:00");
-      setQuietTimeEnd("07:00");
       setStatus("active");
 
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 700);
+      window.setTimeout(() => window.location.reload(), 600);
     } catch (error: any) {
       setMessage(error?.message ?? "Failed to add participant.");
     } finally {
@@ -204,38 +248,47 @@ export default function Page() {
     }
   }
 
+  useEffect(() => {
+    void loadContext();
+  }, []);
+
   return (
-    <div className="space-y-5">
-      <section className="rounded-[28px] border-2 border-slate-950 bg-white p-5 shadow-[4px_4px_0_#171717]">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-black uppercase tracking-wide text-[#F26A21]">
-              Participant registry
+    <PageShell>
+      <PageHeader
+        eyebrow="Core Registry"
+        title="Participants"
+        subtitle="Add, upload, search and manage project participants."
+        actions={
+          <>
+            <LinkButton href="/messages">Messages</LinkButton>
+            <LinkButton href="/scheduler">Scheduler</LinkButton>
+          </>
+        }
+      />
+
+      {message ? <Notice tone="warning">{message}</Notice> : null}
+
+      <CompactCard title="Add participant">
+        <div className="mb-3 grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3">
+            <p className="text-xs font-black uppercase text-slate-500">
+              Organisation
             </p>
-            <h2 className="text-xl font-black text-slate-950">
-              Add participant
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-600">
-              Add one participant now, or bulk upload CSV participants. The list
-              below remains server-paginated for very large projects.
+            <p className="mt-1 text-sm font-black text-slate-950">
+              {context?.organisation_name ?? "Loading..."}
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/messages"
-              className="rounded-2xl border-2 border-slate-950 bg-white px-4 py-3 text-sm font-black text-slate-950 shadow-[3px_3px_0_#171717]"
-            >
-              Message Library
-            </Link>
+          <div className="rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3">
+            <p className="text-xs font-black uppercase text-slate-500">
+              Project
+            </p>
+            <p className="mt-1 text-sm font-black text-slate-950">
+              {activeProjectName}
+            </p>
+          </div>
 
-            <Link
-              href="/scheduler"
-              className="rounded-2xl border-2 border-slate-950 bg-white px-4 py-3 text-sm font-black text-slate-950 shadow-[3px_3px_0_#171717]"
-            >
-              Scheduler
-            </Link>
-
+          <div className="flex flex-wrap items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -243,101 +296,100 @@ export default function Page() {
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) handleBulkFile(file);
+                if (file) void handleBulkFile(file);
               }}
             />
 
-            <button
-              type="button"
+            <PrimaryButton
+              disabled={bulkBusy || !activeProjectId}
               onClick={() => fileInputRef.current?.click()}
-              disabled={bulkBusy}
-              className="rounded-2xl border-2 border-slate-950 bg-[#FFF7F2] px-4 py-3 text-sm font-black text-slate-950 shadow-[3px_3px_0_#171717] disabled:opacity-60"
             >
-              {bulkBusy ? "Uploading..." : "Bulk upload"}
-            </button>
+              {bulkBusy ? "Uploading..." : "Bulk upload CSV"}
+            </PrimaryButton>
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <input
-            value={projectCode}
-            onChange={(event) => setProjectCode(event.target.value)}
-            placeholder="Project code, e.g. DEMO-001"
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
+          <FieldLabel label="Participant code">
+            <TextInput
+              value={participantCode}
+              onChange={(event) => setParticipantCode(event.target.value)}
+              placeholder="Durb_HTN_001"
+            />
+          </FieldLabel>
 
-          <input
-            value={participantCode}
-            onChange={(event) => setParticipantCode(event.target.value)}
-            placeholder="Participant code"
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
+          <FieldLabel label="Full name">
+            <TextInput
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="Optional"
+            />
+          </FieldLabel>
 
-          <input
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="Full name optional"
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
+          <FieldLabel label="Phone">
+            <TextInput
+              value={phoneNumber}
+              onChange={(event) => setPhoneNumber(event.target.value)}
+              placeholder="+27..."
+            />
+          </FieldLabel>
 
-          <input
-            value={phoneNumber}
-            onChange={(event) => setPhoneNumber(event.target.value)}
-            placeholder="Phone number"
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
+          <FieldLabel label="WhatsApp">
+            <TextInput
+              value={whatsappNumber}
+              onChange={(event) => setWhatsappNumber(event.target.value)}
+              placeholder="Optional"
+            />
+          </FieldLabel>
 
-          <input
-            value={whatsappNumber}
-            onChange={(event) => setWhatsappNumber(event.target.value)}
-            placeholder="WhatsApp number optional"
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
+          <FieldLabel label="Email">
+            <TextInput
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Optional"
+            />
+          </FieldLabel>
 
-          <input
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Email optional"
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
+          <FieldLabel label="Language">
+            <SelectInput
+              value={language}
+              onChange={(event) => setLanguage(event.target.value)}
+            >
+              <option value="en">English</option>
+              <option value="zu">isiZulu</option>
+            </SelectInput>
+          </FieldLabel>
 
-          <select
-            value={language}
-            onChange={(event) => setLanguage(event.target.value)}
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          >
-            <option value="en">English</option>
-            <option value="zu">isiZulu</option>
-          </select>
+          <FieldLabel label="Channel">
+            <SelectInput
+              value={preferredChannel}
+              onChange={(event) =>
+                setPreferredChannel(event.target.value as PreferredChannel)
+              }
+            >
+              <option value="app">App first</option>
+              <option value="sms">SMS first</option>
+              <option value="whatsapp">WhatsApp first</option>
+              <option value="voice">Voice first</option>
+            </SelectInput>
+          </FieldLabel>
 
-          <select
-            value={preferredChannel}
-            onChange={(event) =>
-              setPreferredChannel(event.target.value as PreferredChannel)
-            }
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          >
-            <option value="app">App first</option>
-            <option value="sms">SMS first</option>
-            <option value="whatsapp">WhatsApp first</option>
-            <option value="voice">Voice first</option>
-          </select>
+          <FieldLabel label="Status">
+            <SelectInput
+              value={status}
+              onChange={(event) =>
+                setStatus(event.target.value as ParticipantStatus)
+              }
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="withdrawn">Withdrawn</option>
+              <option value="completed">Completed</option>
+              <option value="archived">Archived</option>
+            </SelectInput>
+          </FieldLabel>
 
-          <select
-            value={status}
-            onChange={(event) =>
-              setStatus(event.target.value as ParticipantStatus)
-            }
-            className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21]"
-          >
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="withdrawn">Withdrawn</option>
-            <option value="completed">Completed</option>
-            <option value="archived">Archived</option>
-          </select>
-
-          <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black">
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
             <input
               type="checkbox"
               checked={appAccessEnabled}
@@ -346,16 +398,16 @@ export default function Page() {
             App access
           </label>
 
-          <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black">
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
             <input
               type="checkbox"
               checked={fallbackAllowed}
               onChange={(event) => setFallbackAllowed(event.target.checked)}
             />
-            Allow fallback
+            Fallback
           </label>
 
-          <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black">
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
             <input
               type="checkbox"
               checked={quietTimeEnabled}
@@ -364,88 +416,15 @@ export default function Page() {
             Quiet time
           </label>
 
-          <div className="flex flex-col gap-1">
-            <label className="px-1 text-xs font-black uppercase text-slate-500">
-              Quiet start
-            </label>
-            <input
-              type="time"
-              value={quietTimeStart}
-              onChange={(event) => setQuietTimeStart(event.target.value)}
-              disabled={!quietTimeEnabled}
-              className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21] disabled:opacity-50"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <label className="px-1 text-xs font-black uppercase text-slate-500">
-              Quiet end
-            </label>
-            <input
-              type="time"
-              value={quietTimeEnd}
-              onChange={(event) => setQuietTimeEnd(event.target.value)}
-              disabled={!quietTimeEnabled}
-              className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#F26A21] disabled:opacity-50"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={addParticipant}
-            disabled={busy}
-            className="rounded-2xl border-2 border-slate-950 bg-[#F26A21] px-4 py-3 text-sm font-black text-slate-950 shadow-[3px_3px_0_#171717] disabled:opacity-60"
-          >
+          <PrimaryButton disabled={busy || !activeProjectId} onClick={addParticipant}>
             {busy ? "Adding..." : "Add participant"}
-          </button>
+          </PrimaryButton>
         </div>
+      </CompactCard>
 
-        {message ? (
-          <p className="mt-3 text-sm font-black text-slate-700">{message}</p>
-        ) : null}
-      </section>
-
-      <section className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-[24px] border-2 border-slate-950 bg-white p-4 shadow-[3px_3px_0_#171717]">
-          <p className="text-xs font-black uppercase text-slate-500">
-            Large data mode
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            50 rows per page
-          </p>
-          <p className="mt-1 text-xs font-bold text-slate-600">
-            Search and pagination run on the server, so this can support very
-            large projects.
-          </p>
-        </div>
-
-        <div className="rounded-[24px] border-2 border-slate-950 bg-white p-4 shadow-[3px_3px_0_#171717]">
-          <p className="text-xs font-black uppercase text-slate-500">
-            Quiet time
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            Default 20:00–07:00
-          </p>
-          <p className="mt-1 text-xs font-bold text-slate-600">
-            Scheduler should hold non-urgent messages until quiet time ends.
-          </p>
-        </div>
-
-        <div className="rounded-[24px] border-2 border-slate-950 bg-white p-4 shadow-[3px_3px_0_#171717]">
-          <p className="text-xs font-black uppercase text-slate-500">
-            Scheduler-ready
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            Participant → Message → Schedule
-          </p>
-          <p className="mt-1 text-xs font-bold text-slate-600">
-            Participant codes will later prefill Message Library and Scheduler
-            actions.
-          </p>
-        </div>
-      </section>
-
-      <LargeTableClient config={tableConfigs.participants} />
-    </div>
+      <div className="mt-4">
+        <LargeTableClient config={tableConfigs.participants} />
+      </div>
+    </PageShell>
   );
 }

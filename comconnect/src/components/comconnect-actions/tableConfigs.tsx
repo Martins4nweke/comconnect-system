@@ -39,98 +39,90 @@ function text(value?: string | null, max = 80) {
 }
 
 export const tableConfigs: Record<string, LargeTableConfig> = {
-  participants: {
-    title: "Participants",
-    subtitle: "Large-scale participant registry with search, filters, pagination, selection and bulk archive.",
-    eyebrow: "Core registry",
-    apiPath: "/api/large-table/participants",
-    bulkApiPath: "/api/large-table/participants/bulk-action",
-    parentHref: "/research-care",
-    parentLabel: "Back to Research + Care",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Participants" }],
-    searchPlaceholder: "Search code, phone, name...",
-    allowBulkActions: true,
-    statusOptions: ["active", "inactive", "withdrawn", "completed", "archived"],
-   columns: [
-  { key: "code", label: "Code", render: (r) => r.participant_code },
-  {
-    key: "name",
-    label: "Name",
-    render: (r) =>
-      r.metadata?.display_name ??
-      r.display_name ??
-      (`${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "—"),
-  },
-  { key: "phone", label: "Phone", render: (r) => r.phone_number ?? "—" },
-  {
-    key: "channel",
-    label: "Channel",
-    render: (r) => r.metadata?.preferred_channel ?? "app",
-  },
-  {
-    key: "quiet",
-    label: "Quiet time",
-    render: (r) =>
-      r.metadata?.quiet_time_enabled === false
-        ? "Off"
-        : `${r.metadata?.quiet_time_start ?? "20:00"}–${
-            r.metadata?.quiet_time_end ?? "07:00"
-          }`,
-  },
-  {
-    key: "status",
-    label: "Status",
-    render: (r) => <StatusPill value={r.status} />,
-  },
-  {
-    key: "app",
-    label: "App",
-    render: (r) => (r.app_access_enabled ? "Enabled" : "Disabled"),
-  },
-  {
-    key: "edit",
-    label: "Edit",
-    render: (r) => (
-      <Link
-        href={`/participants/${r.id}/edit`}
-        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-black text-slate-700 hover:border-[#171717]"
-      >
-        Edit
-      </Link>
-    ),
-  },
-  {
-    key: "message",
-    label: "Message",
-    render: (r) => (
-      <Link
-        href={`/messages?participant_id=${r.id}&participant_code=${encodeURIComponent(
-          r.participant_code ?? ""
-        )}`}
-        className="rounded-lg border border-slate-300 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#171717]"
-      >
-        Message
-      </Link>
-    ),
-  },
-  {
-    key: "schedule",
-    label: "Schedule",
-    render: (r) => (
-      <Link
-        href={`/scheduler?participant_id=${r.id}&participant_code=${encodeURIComponent(
-          r.participant_code ?? ""
-        )}`}
-        className="rounded-lg border border-slate-300 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#171717]"
-      >
-        Schedule
-      </Link>
-    ),
-  },
-  { key: "created", label: "Created", render: (r) => dt(r.created_at) },
-],
-  },
-  referrals: {
+participants: {
+  title: "Participants",
+  subtitle: "Search, add, message, schedule and manage project participants.",
+  eyebrow: "Core registry",
+  apiPath: "/api/large-table/participants",
+  bulkApiPath: "/api/large-table/participants/bulk-action",
+  parentHref: "/",
+  parentLabel: "Dashboard",
+  breadcrumbs: [{ label: "Dashboard", href: "/" }, { label: "Participants" }],
+  searchPlaceholder: "Search code, phone or name...",
+  allowBulkActions: true,
+  statusOptions: ["active", "inactive", "withdrawn", "completed", "archived"],
+  columns: [
+    { key: "code", label: "Code", render: (r) => r.participant_code },
+    {
+      key: "name",
+      label: "Name",
+      render: (r) =>
+        r.participant_label ??
+        r.metadata?.display_name ??
+        r.display_name ??
+        (`${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "—"),
+    },
+    { key: "phone", label: "Phone", render: (r) => r.phone_number ?? "—" },
+    {
+      key: "channel",
+      label: "Channel",
+      render: (r) => r.preferred_channel ?? r.metadata?.preferred_channel ?? "app",
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (r) => <StatusPill value={r.status} />,
+    },
+    {
+      key: "app",
+      label: "App",
+      render: (r) => (r.app_access_enabled ? "Enabled" : "Disabled"),
+    },
+    {
+      key: "edit",
+      label: "Edit",
+      render: (r) => (
+        <Link
+          href={`/participants/${r.id}/edit`}
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+        >
+          Edit
+        </Link>
+      ),
+    },
+    {
+      key: "message",
+      label: "Message",
+      render: (r) => (
+        <Link
+          href={`/messages?participant_id=${r.id}&participant_code=${encodeURIComponent(
+            r.participant_code ?? ""
+          )}`}
+          className="rounded-lg border border-slate-200 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+        >
+          Message
+        </Link>
+      ),
+    },
+    {
+      key: "schedule",
+      label: "Schedule",
+      render: (r) => (
+        <Link
+          href={`/scheduler?participant_id=${r.id}&participant_code=${encodeURIComponent(
+            r.participant_code ?? ""
+          )}`}
+          className="rounded-lg border border-slate-200 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+        >
+          Schedule
+        </Link>
+      ),
+    },
+    { key: "created", label: "Created", render: (r) => dt(r.created_at) },
+  ],
+},
+  
+referrals: {
     title: "Referrals",
     subtitle: "Compact referral queue with assignment, status update, pagination and bulk archive.",
     eyebrow: "Care module",
