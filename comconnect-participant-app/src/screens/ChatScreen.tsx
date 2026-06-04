@@ -603,6 +603,39 @@ async function pickVideoAndSend() {
   }
 }
 
+async function capturePhotoAndSend() {
+  try {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      showStatus("Camera permission is required to capture photo.", "error");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.7,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      return;
+    }
+
+    const asset = result.assets[0];
+
+    await sendMediaToChat({
+      uri: asset.uri,
+      mediaType: "image",
+      mimeType: asset.mimeType ?? "image/jpeg",
+      fileName: fileNameFromUri(asset.uri, `chat-photo-${Date.now()}.jpg`),
+      label: "Photo",
+    });
+  } catch {
+    showStatus("Could not capture or send photo.", "error");
+  }
+}
+
   return (
     <Screen title="Chat" subtitle={`To: ${projectName} team`}>
       <StatusNotice message={statusMessage} type={statusType} />
@@ -757,6 +790,13 @@ async function pickVideoAndSend() {
 
 <View style={{ height: 10 }} />
 
+<View style={{ height: 10 }} />
+
+<AppButton
+  label={mediaBusy ? "Sending media..." : "Capture and send photo"}
+  disabled={sending || mediaBusy || Boolean(recording)}
+  onPress={capturePhotoAndSend}
+/>
 <AppButton
   label={mediaBusy ? "Sending media..." : "Capture and send video"}
   disabled={sending || mediaBusy || Boolean(recording)}
