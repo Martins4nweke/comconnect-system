@@ -767,7 +767,7 @@ export async function processPendingVoiceTasks(limit = 50) {
           personalised_message: message,
           provider: result.provider,
          provider_message_id: extractProviderMessageId(result),
-provider_bulk_id: result.provider_bulk_id ?? null,
+provider_bulk_id: "provider_bulk_id" in result ? result.provider_bulk_id ?? null : null,
 provider_response: result.response ?? {},
 provider_error: result.error ?? null,
 provider_status_note: result.ok

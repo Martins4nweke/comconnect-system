@@ -34,8 +34,8 @@ function WithBackHome({
       <View
         style={{
           paddingHorizontal: 14,
-          paddingBottom: 14,
-          paddingTop: 8,
+          paddingBottom: 34,
+          paddingTop: 10,
           backgroundColor: theme.softBg,
         }}
       >
@@ -84,16 +84,16 @@ function AppInner() {
   }
 
   if (nav.screen === "messages") {
-  return (
-    <WithBackHome onBackHome={backHome}>
-      <MessagesScreen
-        openMessage={(messageId) =>
-          navigate("messageDetail", { messageId })
-        }
-      />
-    </WithBackHome>
-  );
-}
+    return (
+      <WithBackHome onBackHome={backHome}>
+        <MessagesScreen
+          openMessage={(messageId) =>
+            navigate("messageDetail", { messageId })
+          }
+        />
+      </WithBackHome>
+    );
+  }
 
   if (nav.screen === "messageDetail") {
     const messageId = String(nav.params?.messageId ?? "");

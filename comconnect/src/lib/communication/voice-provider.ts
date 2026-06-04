@@ -34,6 +34,16 @@ function getInfobipVoiceConfig() {
   const voiceName = cleanText(process.env.INFOBIP_VOICE_NAME) || "Joanna";
   const voiceGender = cleanText(process.env.INFOBIP_VOICE_GENDER) || "female";
 
+  const voiceMode =
+    cleanText(process.env.INFOBIP_VOICE_MODE).toLowerCase() || "simple_tts";
+
+  const ivrTriggerUrl = cleanText(process.env.INFOBIP_IVR_TRIGGER_URL);
+  const ivrScenarioId = cleanText(process.env.INFOBIP_IVR_SCENARIO_ID);
+  const ivrDtmfNotifyUrl = cleanText(process.env.INFOBIP_IVR_DTMF_NOTIFY_URL);
+  const ivrRecordingNotifyUrl = cleanText(
+    process.env.INFOBIP_IVR_RECORDING_NOTIFY_URL
+  );
+
   if (!baseUrl && !voiceUrl) {
     throw new Error("INFOBIP_BASE_URL or INFOBIP_VOICE_URL is required");
   }
@@ -55,8 +65,15 @@ function getInfobipVoiceConfig() {
     language,
     voiceName,
     voiceGender,
+    voiceMode,
+    ivrTriggerUrl,
+    ivrScenarioId,
+    ivrDtmfNotifyUrl,
+    ivrRecordingNotifyUrl,
   };
 }
+
+type InfobipVoiceConfig = ReturnType<typeof getInfobipVoiceConfig>;
 
 function getInfobipVoiceError(json: any, status: number) {
   return (
@@ -79,6 +96,7 @@ function extractInfobipVoiceMessageId(json: any) {
     json?.callId ??
     json?.messageId ??
     json?.calls?.[0]?.callId ??
+    json?.id ??
     null
   );
 }
@@ -108,6 +126,82 @@ function infobipVoiceStatusIsFailure(status: unknown) {
     text.includes("FAILED") ||
     text.includes("ERROR")
   );
+}
+
+async function startInfobipIvrFlow(
+  config: InfobipVoiceConfig,
+  payload: VoicePayload
+) {
+  if (!config.ivrTriggerUrl) {
+    return {
+      ok: false,
+      provider: "infobip",
+      status: "failed",
+      provider_message_id: null,
+      provider_bulk_id: null,
+      error:
+        "INFOBIP_IVR_TRIGGER_URL is required when INFOBIP_VOICE_MODE=ivr_flow",
+      response: null,
+    };
+  }
+
+  const to = normaliseInfobipMsisdn(payload.to);
+
+  const text =
+    cleanText(payload.message) ||
+    cleanText(payload.reason) ||
+    "You have a ComConnect voice message.";
+
+  const ivrPayload: Record<string, any> = {
+    to,
+    from: config.voiceFrom,
+    message: text,
+    text,
+    reason: cleanText(payload.reason) || null,
+    question:
+      "After the beep, please say your blood pressure reading, medication adherence, or concern.",
+    scenario_id: config.ivrScenarioId || undefined,
+    language: config.language,
+    voice: {
+      name: config.voiceName,
+      gender: config.voiceGender,
+    },
+    webhooks: {
+      delivery: config.notifyUrl || undefined,
+      dtmf: config.ivrDtmfNotifyUrl || undefined,
+      recording: config.ivrRecordingNotifyUrl || undefined,
+    },
+    metadata: {
+      source: "comconnect",
+      voice_mode: "ivr_flow",
+      reason: cleanText(payload.reason) || null,
+    },
+  };
+
+  const res = await fetch(config.ivrTriggerUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `App ${config.apiKey}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(ivrPayload),
+  });
+
+  const json = await res.json().catch(() => null);
+  const providerStatus = extractInfobipVoiceStatus(json);
+
+  const ok = res.ok && !infobipVoiceStatusIsFailure(providerStatus);
+
+  return {
+    ok,
+    provider: "infobip",
+    status: ok ? "submitted_to_provider" : "failed",
+    provider_message_id: extractInfobipVoiceMessageId(json),
+    provider_bulk_id: extractInfobipVoiceBulkId(json),
+    error: ok ? null : getInfobipVoiceError(json, res.status),
+    response: json,
+  };
 }
 
 export async function startVoiceCall(payload: VoicePayload) {
@@ -196,6 +290,11 @@ export async function startVoiceCall(payload: VoicePayload) {
   if (provider === "infobip") {
     try {
       const config = getInfobipVoiceConfig();
+
+      if (config.voiceMode === "ivr_flow") {
+        return await startInfobipIvrFlow(config, payload);
+      }
+
       const to = normaliseInfobipMsisdn(payload.to);
 
       const text =

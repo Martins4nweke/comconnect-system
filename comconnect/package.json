@@ -14,12 +14,13 @@
     "@supabase/supabase-js": "latest",
     "@tailwindcss/postcss": "^4.3.0",
     "html2canvas": "latest",
-    "jspdf": "latest",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.1",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "xlsx": "latest"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "latest",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Switch, Text, View } from "react-native";
+import { Alert, Switch, Text, View } from "react-native";
 import { Screen } from "../components/Screen";
 import { Card } from "../components/Card";
 import { AppButton } from "../components/AppButton";
@@ -467,16 +467,34 @@ export function HomeScreen({
     };
   }, [setCache, setConfig]);
 
-  async function logout() {
-    try {
-      await logoutParticipant();
-    } catch {}
 
-    await clearSession();
-    setToken(null);
-    setConfig(null);
-    onLogout();
-  }
+  async function logout() {
+  Alert.alert(
+    "Logout?",
+    "You will need to login again if you continue.",
+    [
+      {
+        text: "Stay logged in",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await logoutParticipant();
+          } catch {}
+
+          await clearSession();
+          setToken(null);
+          setConfig(null);
+          setCache(null);
+          onLogout();
+        },
+      },
+    ]
+  );
+}
 
   const messages = uniqueById(
     getCacheArray(cache, "messages"),
