@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
+import { getScopedContext } from "@/lib/comconnect-core/access-scope";
 import { getLargeTableParams, getNextCursor } from "@/lib/large-table/pagination";
 import { applyCommonFilters, textSearchOr } from "@/lib/large-table/query";
 
@@ -18,13 +19,21 @@ function extractChatMessageType(payload: any) {
       payload?.media?.media_type
   ).toLowerCase();
 
-  if (value === "audio") return "audio";
-  if (value === "voice") return "audio";
-  if (value === "voice_note") return "audio";
-  if (value === "image") return "image";
-  if (value === "photo") return "image";
-  if (value === "video") return "video";
-  if (value === "file") return "file";
+  if (value === "audio" || value === "voice" || value === "voice_note") {
+    return "audio";
+  }
+
+  if (value === "image" || value === "photo") {
+    return "image";
+  }
+
+  if (value === "video") {
+    return "video";
+  }
+
+  if (value === "file") {
+    return "file";
+  }
 
   return "text";
 }
@@ -149,119 +158,140 @@ function defaultHrefForSource(
 }
 
 export async function GET(req: NextRequest) {
-  const params = getLargeTableParams(req);
-  const limit = PAGE_SIZE;
+  try {
+    const context = await getScopedContext(req);
+    const params = getLargeTableParams(req);
+    const limit = PAGE_SIZE;
 
-  let query = supabaseAdmin
-    .from("inbox_items")
-    .select("*, participants(participant_code, display_name, phone_number)")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    let query = supabaseAdmin
+      .from("inbox_items")
+      .select("*, participants(participant_code, display_name, phone_number)")
+      .eq("organisation_id", context.organisation_id)
+      .order("created_at", { ascending: false })
+      .limit(limit);
 
-  query = applyCommonFilters(query, params);
-
-  const search = textSearchOr(params.q, [
-    "title",
-    "summary",
-    "source_type",
-    "priority",
-    "status",
-  ]);
-
-  if (search) query = query.or(search);
-
-  const { data, error } = await query;
-  if (error) return fail(error.message, 500);
-
-  const rows = data ?? [];
-
-  const chatMessageIds = rows
-    .filter((row: any) => row.source_type === "chat_message" && row.source_id)
-    .map((row: any) => row.source_id);
-
-  let chatMessageMap = new Map<
-    string,
-    {
-      id: string;
-      thread_id: string | null;
-      payload: any;
-      message_text?: string | null;
+    if (context.active_project_id) {
+      query = query.eq("project_id", context.active_project_id);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
     }
-  >();
 
-  if (chatMessageIds.length > 0) {
-    const { data: chatMessages } = await supabaseAdmin
-      .from("chat_messages")
-      .select("id, thread_id, message_text, payload")
-      .in("id", chatMessageIds);
+    query = applyCommonFilters(query, params);
 
-    chatMessageMap = new Map(
-      (chatMessages ?? []).map((message: any) => [
-        message.id,
-        {
-          id: message.id,
-          thread_id: message.thread_id,
-          payload: message.payload ?? {},
-          message_text: message.message_text,
-        },
-      ])
-    );
+    const search = textSearchOr(params.q, [
+      "title",
+      "summary",
+      "source_type",
+      "priority",
+      "status",
+    ]);
+
+    if (search) query = query.or(search);
+
+    const { data, error } = await query;
+    if (error) return fail(error.message, 500);
+
+    const rows = data ?? [];
+
+    const chatMessageIds = rows
+      .filter((row: any) => row.source_type === "chat_message" && row.source_id)
+      .map((row: any) => row.source_id);
+
+    let chatMessageMap = new Map<
+      string,
+      {
+        id: string;
+        thread_id: string | null;
+        payload: any;
+        message_text?: string | null;
+      }
+    >();
+
+    if (chatMessageIds.length > 0) {
+      const { data: chatMessages } = await supabaseAdmin
+        .from("chat_messages")
+        .select("id, thread_id, message_text, payload")
+        .eq("organisation_id", context.organisation_id)
+        .in("id", chatMessageIds);
+
+      chatMessageMap = new Map(
+        (chatMessages ?? []).map((message: any) => [
+          message.id,
+          {
+            id: message.id,
+            thread_id: message.thread_id,
+            payload: message.payload ?? {},
+            message_text: message.message_text,
+          },
+        ])
+      );
+    }
+
+    const enrichedRows = rows.map((row: any) => {
+      const sourceType = row.source_type ?? null;
+      const sourceId = row.source_id ?? null;
+
+      const chatMessage =
+        sourceType === "chat_message" && sourceId
+          ? chatMessageMap.get(sourceId)
+          : null;
+
+      const chatPayload = chatMessage?.payload ?? null;
+      const chatThreadId = chatMessage?.thread_id ?? null;
+
+      const actionHref =
+        sourceType === "chat_message" && chatThreadId
+          ? `/chat/${chatThreadId}`
+          : defaultHrefForSource(sourceType, sourceId);
+
+      const mediaType =
+        sourceType === "chat_message"
+          ? extractChatMessageType(chatPayload)
+          : null;
+
+      const mediaUrl =
+        sourceType === "chat_message" ? extractChatMediaUrl(chatPayload) : "";
+
+      const responseType = labelForSourceType(sourceType, chatPayload);
+      const responseModule = moduleForSourceType(sourceType, chatPayload);
+
+      const summary =
+        sourceType === "chat_message" && mediaType && mediaType !== "text"
+          ? row.summary || chatMessage?.message_text || responseType
+          : row.summary;
+
+      return {
+        ...row,
+        summary,
+        response_type: responseType,
+        response_module: responseModule,
+        action_href: actionHref,
+        participant_label:
+          row.participants?.display_name ??
+          row.participants?.participant_code ??
+          "—",
+
+        chat_thread_id: chatThreadId,
+        chat_message_type: mediaType,
+        chat_media_url: mediaUrl || null,
+        has_media:
+          sourceType === "chat_message" &&
+          Boolean(mediaType && mediaType !== "text"),
+      };
+    });
+
+    return ok({
+      rows: enrichedRows,
+      limit,
+      next_cursor: getNextCursor(enrichedRows),
+      scope: {
+        organisation_id: context.organisation_id,
+        project_id: context.active_project_id,
+      },
+    });
+  } catch (error: any) {
+    return fail(error?.message ?? "Failed to load inbox", 500);
   }
-
-  const enrichedRows = rows.map((row: any) => {
-    const sourceType = row.source_type ?? null;
-    const sourceId = row.source_id ?? null;
-
-    const chatMessage =
-      sourceType === "chat_message" && sourceId
-        ? chatMessageMap.get(sourceId)
-        : null;
-
-    const chatPayload = chatMessage?.payload ?? null;
-    const chatThreadId = chatMessage?.thread_id ?? null;
-
-    const actionHref =
-      sourceType === "chat_message" && chatThreadId
-        ? `/chat/${chatThreadId}`
-        : defaultHrefForSource(sourceType, sourceId);
-
-    const mediaType =
-      sourceType === "chat_message" ? extractChatMessageType(chatPayload) : null;
-
-    const mediaUrl =
-      sourceType === "chat_message" ? extractChatMediaUrl(chatPayload) : "";
-
-    const responseType = labelForSourceType(sourceType, chatPayload);
-    const responseModule = moduleForSourceType(sourceType, chatPayload);
-
-    const summary =
-      sourceType === "chat_message" && mediaType && mediaType !== "text"
-        ? row.summary || chatMessage?.message_text || responseType
-        : row.summary;
-
-    return {
-      ...row,
-      summary,
-      response_type: responseType,
-      response_module: responseModule,
-      action_href: actionHref,
-      participant_label:
-        row.participants?.display_name ??
-        row.participants?.participant_code ??
-        "—",
-
-      chat_thread_id: chatThreadId,
-      chat_message_type: mediaType,
-      chat_media_url: mediaUrl || null,
-      has_media:
-        sourceType === "chat_message" &&
-        Boolean(mediaType && mediaType !== "text"),
-    };
-  });
-
-  return ok({
-    rows: enrichedRows,
-    limit,
-    next_cursor: getNextCursor(enrichedRows),
-  });
 }
