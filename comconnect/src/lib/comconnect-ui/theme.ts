@@ -171,40 +171,28 @@ const platformApi = [
     tag: "API",
   },
   {
+    title: "Export Center",
+    href: "/export",
+    description: "Download participants, messages, inbox, logs and media files.",
+    tag: "Export",
+  },
+  {
     title: "API Keys",
     href: "/api-keys",
     description: "Create and manage external API access.",
     tag: "API",
   },
   {
-    title: "Webhooks",
-    href: "/webhooks",
-    description: "Send delivery and reply events to clients.",
-    tag: "API",
-  },
-  {
-    title: "API Usage",
-    href: "/api-usage",
-    description: "Track requests, limits and billing usage.",
-    tag: "API",
-  },
-  {
     title: "Billing",
     href: "/billing",
-    description: "Plans, wallet, usage and payments.",
-    tag: "Platform",
+    description: "Manage subscriptions, wallet and usage.",
+    tag: "Billing",
   },
   {
     title: "Audit Logs",
     href: "/audit-logs",
-    description: "Security and activity trail.",
-    tag: "Admin",
-  },
-  {
-    title: "Project Settings",
-    href: "/project-settings",
-    description: "Project channels, modules and configuration.",
-    tag: "Admin",
+    description: "Review platform activity and trace important changes.",
+    tag: "Audit",
   },
 ];
 
