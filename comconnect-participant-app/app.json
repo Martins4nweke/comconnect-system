@@ -12,7 +12,11 @@
     "android": {
       "package": "com.comconnect.participant",
       "permissions": [
-        "INTERNET"
+        "INTERNET",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_IMAGES"
       ],
       "usesCleartextTraffic": true,
       "jsEngine": "hermes"
