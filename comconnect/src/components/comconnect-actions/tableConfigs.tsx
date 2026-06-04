@@ -151,26 +151,103 @@ export const tableConfigs: Record<string, LargeTableConfig> = {
       { key: "created", label: "Created", render: (r) => dt(r.created_at) },
     ],
   },
+ 
   inbox: {
-    title: "Inbox / Help Requests",
-    subtitle: "Central operational queue for participant replies, help requests and alerts.",
-    eyebrow: "Research + Care",
+    title: "Participant Response Inbox",
+    subtitle:
+      "Central operational queue for message replies, chat, help requests, questionnaire submissions, appointment responses, health check-ins and referral responses.",
+    eyebrow: "Core Communication Engine",
     apiPath: "/api/large-table/inbox",
     bulkApiPath: "/api/large-table/inbox/bulk-action",
-    parentHref: "/research-care/care",
-    parentLabel: "Back to Care",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Care", href: "/research-care/care" }, { label: "Inbox" }],
-    searchPlaceholder: "Search title, summary, source...",
+    parentHref: "/communication-operations",
+    parentLabel: "Back to Communication Operations",
+    breadcrumbs: [
+      { label: "Communication Operations", href: "/communication-operations" },
+      { label: "Participant Response Inbox" },
+    ],
+    searchPlaceholder:
+      "Search participant, reply type, title, summary, source or status...",
     allowBulkActions: true,
     statusOptions: ["open", "assigned", "resolved", "archived"],
     columns: [
-      { key: "title", label: "Title", render: (r) => r.title },
-      { key: "summary", label: "Summary", render: (r) => text(r.summary) },
-      { key: "priority", label: "Priority", render: (r) => <StatusPill value={r.priority} /> },
-      { key: "status", label: "Status", render: (r) => <StatusPill value={r.status} /> },
-      { key: "created", label: "Created", render: (r) => dt(r.created_at) },
+      {
+        key: "participant",
+        label: "Participant",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.participant_label ??
+                r.participants?.display_name ??
+                r.participants?.participant_code ??
+                "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.participants?.participant_code ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "type",
+        label: "Type",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.response_type ?? r.source_type ?? "Inbox item"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.response_module ?? "Inbox"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "title",
+        label: "Source",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">{text(r.title, 50)}</p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.source_type ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "summary",
+        label: "Preview",
+        render: (r) => text(r.summary, 90),
+      },
+      {
+        key: "priority",
+        label: "Priority",
+        render: (r) => <StatusPill value={r.priority} />,
+      },
+      {
+        key: "status",
+        label: "Status",
+        render: (r) => <StatusPill value={r.status} />,
+      },
+      {
+        key: "open",
+        label: "Open",
+        render: (r) => (
+          <Link
+            href={r.action_href ?? "/inbox"}
+            className="rounded-lg border border-slate-300 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#171717]"
+          >
+            Open
+          </Link>
+        ),
+      },
+      {
+        key: "created",
+        label: "Created",
+        render: (r) => dt(r.created_at),
+      },
     ],
   },
+
   appointments: {
     title: "Appointments",
     subtitle: "Project-aware appointment queue with pagination, filters and bulk actions.",
