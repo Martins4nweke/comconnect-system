@@ -1,7 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { VerticalAppShell } from "@/components/comconnect-ui/VerticalAppShell";
+import {
+  CompactCard,
+  FieldLabel,
+  LinkButton,
+  Notice,
+  PageHeader,
+  PageShell,
+  PrimaryButton,
+  SelectInput,
+  TextInput,
+} from "@/components/comconnect-ui/DashboardUI";
 
 const DATASETS = [
   ["participants", "Participants"],
@@ -22,12 +33,41 @@ const DATASETS = [
 const FORMATS = [
   ["xlsx", "Excel"],
   ["csv", "CSV"],
-  ["pdf", "PDF summary"],
+  ["pdf", "PDF"],
   ["json", "JSON"],
-  ["zip", "ZIP media files"],
+  ["zip", "ZIP media"],
 ];
 
+type ProjectOption = {
+  id: string;
+  name: string;
+  project_code?: string | null;
+};
+
+type CurrentContext = {
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_id?: string | null;
+  active_project_name?: string | null;
+  project_role?: string | null;
+  allowed_projects?: ProjectOption[];
+  can_export_data?: boolean;
+  dev_fallback?: boolean;
+};
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function projectLabel(project: ProjectOption) {
+  return project.project_code
+    ? `${project.name} (${project.project_code})`
+    : project.name;
+}
+
 export default function ExportPage() {
+  const [context, setContext] = useState<CurrentContext | null>(null);
   const [dataset, setDataset] = useState("participants");
   const [format, setFormat] = useState("xlsx");
   const [mediaType, setMediaType] = useState("all");
@@ -35,9 +75,16 @@ export default function ExportPage() {
   const [end, setEnd] = useState("");
   const [status, setStatus] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [organisationId, setOrganisationId] = useState("");
   const [limit, setLimit] = useState("5000");
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [note, setNote] = useState("");
+  const [loadingContext, setLoadingContext] = useState(true);
+
+  const projects = context?.allowed_projects ?? [];
+  const selectedProject =
+    projects.find((project) => project.id === projectId) ?? null;
+
+  const canExport = Boolean(context?.can_export_data ?? true);
 
   const downloadUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -46,6 +93,10 @@ export default function ExportPage() {
     params.set("format", format);
     params.set("limit", limit || "5000");
 
+    if (projectId) {
+      params.set("project_id", projectId);
+    }
+
     if (dataset === "media_manifest" && mediaType) {
       params.set("media_type", mediaType);
     }
@@ -53,8 +104,6 @@ export default function ExportPage() {
     if (start) params.set("start", start);
     if (end) params.set("end", end);
     if (status) params.set("status", status);
-    if (projectId) params.set("project_id", projectId);
-    if (organisationId) params.set("organisation_id", organisationId);
     if (includeArchived) params.set("include_archived", "true");
 
     return `/api/export?${params.toString()}`;
@@ -66,223 +115,245 @@ export default function ExportPage() {
     end,
     status,
     projectId,
-    organisationId,
     limit,
     includeArchived,
   ]);
 
+  async function loadContext(projectIdOverride?: string) {
+    setLoadingContext(true);
+    setNote("");
+
+    try {
+      const params = new URLSearchParams();
+
+      if (projectIdOverride) {
+        params.set("project_id", projectIdOverride);
+      }
+
+      const response = await fetch(
+        params.toString()
+          ? `/api/context/current?${params.toString()}`
+          : "/api/context/current",
+        { cache: "no-store" }
+      );
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to load export context.");
+      }
+
+      const currentContext = json.data as CurrentContext;
+
+      setContext(currentContext);
+
+      const nextProjectId =
+        projectIdOverride ||
+        currentContext.active_project_id ||
+        currentContext.allowed_projects?.[0]?.id ||
+        "";
+
+      setProjectId(nextProjectId);
+
+      if (currentContext.dev_fallback) {
+        setNote(
+          "Development fallback is active. Real users will be scoped by login."
+        );
+      }
+    } catch (error: any) {
+      setNote(error?.message ?? "Failed to load export context.");
+    } finally {
+      setLoadingContext(false);
+    }
+  }
+
+  async function handleProjectChange(value: string) {
+    setProjectId(value);
+    await loadContext(value);
+  }
+
   function download() {
+    if (!canExport) {
+      setNote("You do not have permission to export data.");
+      return;
+    }
+
     window.location.href = downloadUrl;
   }
 
-  return (
-    <main className="min-h-screen bg-[#FFF7F2] px-6 py-6">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#F26A21]">
-              ComConnect Export Center
-            </p>
-            <h1 className="mt-2 text-2xl font-black text-slate-950">
-              Export and Download Data
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm font-semibold text-slate-600">
-              Download participants, messages, inbox, delivery logs, chat
-              records, care records, audit data and media files.
-            </p>
-          </div>
+  useEffect(() => {
+    void loadContext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-          <Link
-            href="/dashboard"
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:border-[#171717]"
-          >
-            Dashboard
-          </Link>
+  return (
+    <VerticalAppShell
+      organisationRole={context?.organisation_role ?? "organisation_admin"}
+      projectRole={context?.project_role ?? "project_manager"}
+      organisationName={context?.organisation_name ?? "Current organisation"}
+      projectName={selectedProject?.name ?? context?.active_project_name ?? "Export"}
+    >
+      <PageShell>
+        <PageHeader
+          eyebrow="Data and Reporting"
+          title="Export Center"
+          subtitle="Download project data in Excel, CSV, PDF, JSON or ZIP."
+          actions={<LinkButton href="/">Dashboard</LinkButton>}
+        />
+
+        {note ? <Notice tone="warning">{note}</Notice> : null}
+
+        <div className="mb-4 grid gap-3 md:grid-cols-3">
+          <CompactCard>
+            <p className="text-xs font-black uppercase text-slate-500">
+              Organisation
+            </p>
+            <p className="mt-1 text-sm font-black text-slate-950">
+              {context?.organisation_name ?? "Loading..."}
+            </p>
+          </CompactCard>
+
+          <CompactCard>
+            <p className="text-xs font-black uppercase text-slate-500">
+              Project
+            </p>
+            <p className="mt-1 text-sm font-black text-slate-950">
+              {selectedProject?.name ??
+                context?.active_project_name ??
+                "No project selected"}
+            </p>
+          </CompactCard>
+
+          <CompactCard>
+            <p className="text-xs font-black uppercase text-slate-500">
+              Access
+            </p>
+            <p className="mt-1 text-sm font-black text-slate-950">
+              {canExport ? "Export allowed" : "Read only"}
+            </p>
+          </CompactCard>
         </div>
 
-        <section className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Dataset
-              </span>
-              <select
+        <CompactCard title="Export options">
+          <div className="grid gap-3 md:grid-cols-2">
+            <FieldLabel label="Project">
+              <SelectInput
+                value={projectId}
+                onChange={(event) => void handleProjectChange(event.target.value)}
+                disabled={loadingContext || projects.length === 0}
+              >
+                {projects.length === 0 ? (
+                  <option value="">No accessible project</option>
+                ) : (
+                  projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {projectLabel(project)}
+                    </option>
+                  ))
+                )}
+              </SelectInput>
+            </FieldLabel>
+
+            <FieldLabel label="Dataset">
+              <SelectInput
                 value={dataset}
                 onChange={(event) => setDataset(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
               >
                 {DATASETS.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
                 ))}
-              </select>
-            </label>
+              </SelectInput>
+            </FieldLabel>
 
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Format
-              </span>
-              <select
+            <FieldLabel label="Format">
+              <SelectInput
                 value={format}
                 onChange={(event) => setFormat(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
               >
                 {FORMATS.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
                 ))}
-              </select>
-            </label>
+              </SelectInput>
+            </FieldLabel>
 
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Media type
-              </span>
-              <select
+            <FieldLabel label="Media type">
+              <SelectInput
                 value={mediaType}
                 onChange={(event) => setMediaType(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
+                disabled={dataset !== "media_manifest"}
               >
                 <option value="all">All media</option>
-                <option value="video">Videos only</option>
-                <option value="audio">Audio only</option>
-                <option value="image">Images only</option>
-              </select>
-            </label>
+                <option value="video">Videos</option>
+                <option value="audio">Audio</option>
+                <option value="image">Images</option>
+              </SelectInput>
+            </FieldLabel>
 
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Row limit
-              </span>
-              <input
+            <FieldLabel label="Start date">
+              <TextInput
+                type="date"
+                value={start}
+                onChange={(event) => setStart(event.target.value)}
+              />
+            </FieldLabel>
+
+            <FieldLabel label="End date">
+              <TextInput
+                type="date"
+                value={end}
+                onChange={(event) => setEnd(event.target.value)}
+              />
+            </FieldLabel>
+
+            <FieldLabel label="Status">
+              <TextInput
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+                placeholder="open, active, failed..."
+              />
+            </FieldLabel>
+
+            <FieldLabel label="Row limit">
+              <TextInput
                 type="number"
                 min="1"
                 max="50000"
                 value={limit}
                 onChange={(event) => setLimit(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-800"
               />
-              <p className="mt-1 text-xs font-bold text-slate-500">
-                ZIP media export is safely limited to 50 files.
-              </p>
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Start date
-              </span>
-              <input
-                type="date"
-                value={start}
-                onChange={(event) => setStart(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-800"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                End date
-              </span>
-              <input
-                type="date"
-                value={end}
-                onChange={(event) => setEnd(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-800"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Status filter
-              </span>
-              <input
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                placeholder="open, active, archived..."
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-800"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Project ID optional
-              </span>
-              <input
-                value={projectId}
-                onChange={(event) => setProjectId(event.target.value)}
-                placeholder="Filter by project_id"
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-800"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase text-slate-500">
-                Organisation ID optional
-              </span>
-              <input
-                value={organisationId}
-                onChange={(event) => setOrganisationId(event.target.value)}
-                placeholder="Filter by organisation_id"
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-800"
-              />
-            </label>
+            </FieldLabel>
           </div>
 
-          <label className="mt-5 flex items-center gap-3 text-sm font-bold text-slate-700">
+          <label className="mt-4 flex items-center gap-3 text-sm font-bold text-slate-700">
             <input
               type="checkbox"
               checked={includeArchived}
               onChange={(event) => setIncludeArchived(event.target.checked)}
               className="h-4 w-4"
             />
-            Include archived records where available
+            Include archived records
           </label>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={download}
-              className="rounded-xl bg-[#F26A21] px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-orange-600"
-            >
-              Download export
-            </button>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <PrimaryButton disabled={!canExport || loadingContext} onClick={download}>
+              Download
+            </PrimaryButton>
 
             <a
               href={downloadUrl}
               target="_blank"
               rel="noreferrer"
-              className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:border-[#171717]"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
             >
-              Open export URL
+              Open URL
             </a>
           </div>
-        </section>
-
-        <section className="mt-5 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-black text-slate-900">Excel / CSV</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-600">
-              Best for operational datasets, analysis and reporting.
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-black text-slate-900">PDF summary</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-600">
-              Best for short summaries, not millions of rows.
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-black text-slate-900">ZIP media</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-600">
-              Downloads selected audio, image or video files with a manifest.
-            </p>
-          </div>
-        </section>
-      </div>
-    </main>
+        </CompactCard>
+      </PageShell>
+    </VerticalAppShell>
   );
 }

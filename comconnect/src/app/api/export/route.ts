@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  assertCanExportData,
+  getScopedContext,
+  type ScopedContext,
+} from "@/lib/comconnect-core/access-scope";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import JSZip from "jszip";
@@ -15,6 +20,7 @@ type DatasetConfig = {
   statusColumn?: string;
   archivedColumn?: string;
   defaultOrder?: string;
+  scope: "project" | "organisation";
 };
 
 const DEFAULT_LIMIT = 5000;
@@ -28,6 +34,7 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "created_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
   },
   app_messages: {
     label: "App Messages",
@@ -35,11 +42,13 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "created_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
   },
   app_message_replies: {
     label: "App Message Replies",
     table: "app_message_replies",
     dateColumn: "created_at",
+    scope: "project",
   },
   central_inbox: {
     label: "Central Inbox",
@@ -47,23 +56,27 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "created_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
   },
   delivery_events: {
     label: "Delivery Logs",
     table: "communication_delivery_events",
     dateColumn: "created_at",
     statusColumn: "status",
+    scope: "project",
   },
   chat_threads: {
     label: "Chat Threads",
     table: "chat_threads",
     dateColumn: "created_at",
     statusColumn: "status",
+    scope: "project",
   },
   chat_messages: {
     label: "Chat Messages",
     table: "chat_messages",
     dateColumn: "created_at",
+    scope: "project",
   },
   appointments: {
     label: "Appointments",
@@ -71,6 +84,7 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "created_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
   },
   referrals: {
     label: "Referrals",
@@ -78,6 +92,7 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "created_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
   },
   health_checkins: {
     label: "Health Check-ins",
@@ -85,17 +100,20 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "submitted_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
   },
   voice_tasks: {
     label: "Voice Tasks",
     table: "voice_call_tasks",
     dateColumn: "created_at",
     statusColumn: "status",
+    scope: "project",
   },
   audit_logs: {
     label: "Audit Logs",
     table: "audit_logs",
     dateColumn: "created_at",
+    scope: "organisation",
   },
 };
 
@@ -170,6 +188,7 @@ function toCsv(rows: any[]) {
     ),
   ].join("\n");
 }
+
 function excelBuffer(rows: any[], sheetName: string) {
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(flattenRows(rows));
@@ -255,9 +274,23 @@ function pdfBuffer(rows: any[], title: string, dataset: string) {
   return Buffer.from(doc.output("arraybuffer"));
 }
 
+function validateRequestedProject(context: ScopedContext, projectId: string) {
+  if (!projectId) return null;
+
+  if (!context.allowed_project_ids.includes(projectId)) {
+    return "You do not have access to the selected project.";
+  }
+
+  return null;
+}
+
+function effectiveProjectId(context: ScopedContext, requestedProjectId: string) {
+  return requestedProjectId || context.active_project_id || "";
+}
+
 async function getMediaManifest(params: {
-  organisationId?: string;
-  projectId?: string;
+  context: ScopedContext;
+  projectId: string;
   start?: string;
   end?: string;
   limit: number;
@@ -268,15 +301,14 @@ async function getMediaManifest(params: {
     .select(
       "id, organisation_id, project_id, participant_id, thread_id, message_text, payload, created_at"
     )
+    .eq("organisation_id", params.context.organisation_id)
     .order("created_at", { ascending: false })
     .limit(params.limit);
 
-  if (params.organisationId) {
-    query = query.eq("organisation_id", params.organisationId);
-  }
-
   if (params.projectId) {
     query = query.eq("project_id", params.projectId);
+  } else if (!params.context.can_manage_organisation) {
+    query = query.in("project_id", params.context.allowed_project_ids);
   }
 
   if (params.start) {
@@ -308,11 +340,11 @@ async function getMediaManifest(params: {
           row.payload?.media_type ??
           row.payload?.message_type ??
           "",
-        bucket: media.bucket ?? "",
+        bucket: media.bucket ?? media.storage_bucket ?? "",
         storage_path: media.storage_path ?? "",
-        file_name: media.file_name ?? "",
-        mime_type: media.mime_type ?? "",
-        file_size: media.file_size ?? "",
+        file_name: media.file_name ?? media.media_filename ?? "",
+        mime_type: media.mime_type ?? media.media_mime_type ?? "",
+        file_size: media.file_size ?? media.media_size ?? "",
         uploaded_at: media.uploaded_at ?? row.created_at,
         created_at: row.created_at,
       };
@@ -382,12 +414,11 @@ async function zipMediaBuffer(rows: any[]) {
   });
 }
 
-async function getRows(req: NextRequest) {
+async function getRows(req: NextRequest, context: ScopedContext) {
   const url = new URL(req.url);
 
   const dataset = cleanText(url.searchParams.get("dataset"));
-  const organisationId = cleanText(url.searchParams.get("organisation_id"));
-  const projectId = cleanText(url.searchParams.get("project_id"));
+  const requestedProjectId = cleanText(url.searchParams.get("project_id"));
   const status = cleanText(url.searchParams.get("status"));
   const start = cleanText(url.searchParams.get("start"));
   const end = cleanText(url.searchParams.get("end"));
@@ -395,9 +426,14 @@ async function getRows(req: NextRequest) {
   const limit = parseLimit(url.searchParams.get("limit"));
   const mediaType = cleanText(url.searchParams.get("media_type")).toLowerCase();
 
+  const projectError = validateRequestedProject(context, requestedProjectId);
+  if (projectError) throw new Error(projectError);
+
+  const projectId = effectiveProjectId(context, requestedProjectId);
+
   if (dataset === "media_manifest") {
     const rows = await getMediaManifest({
-      organisationId,
+      context,
       projectId,
       start,
       end,
@@ -418,22 +454,45 @@ async function getRows(req: NextRequest) {
     throw new Error(`Unsupported export dataset: ${dataset}`);
   }
 
-  let query = supabaseAdmin.from(config.table).select("*").limit(limit);
+  let query = supabaseAdmin
+    .from(config.table)
+    .select("*")
+    .eq("organisation_id", context.organisation_id)
+    .limit(limit);
 
   const orderColumn = config.defaultOrder ?? config.dateColumn ?? "created_at";
 
   query = query.order(orderColumn, { ascending: false });
 
-  if (organisationId) query = query.eq("organisation_id", organisationId);
-  if (projectId) query = query.eq("project_id", projectId);
-  if (status && config.statusColumn) query = query.eq(config.statusColumn, status);
+  if (config.scope === "project") {
+    if (projectId) {
+      query = query.eq("project_id", projectId);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
+    }
+  }
+
+  if (config.scope === "organisation" && requestedProjectId) {
+    query = query.eq("project_id", requestedProjectId);
+  }
+
+  if (status && config.statusColumn) {
+    query = query.eq(config.statusColumn, status);
+  }
 
   if (!includeArchived && config.archivedColumn) {
     query = query.is(config.archivedColumn, null);
   }
 
-  if (start && config.dateColumn) query = query.gte(config.dateColumn, start);
-  if (end && config.dateColumn) query = query.lte(config.dateColumn, end);
+  if (start && config.dateColumn) {
+    query = query.gte(config.dateColumn, start);
+  }
+
+  if (end && config.dateColumn) {
+    query = query.lte(config.dateColumn, end);
+  }
 
   const { data, error } = await query;
 
@@ -448,12 +507,21 @@ async function getRows(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const context = await getScopedContext(req);
+    const permissionError = assertCanExportData(context);
+
+    if (permissionError) {
+      return permissionError;
+    }
+
     const url = new URL(req.url);
     const format = (cleanText(url.searchParams.get("format")) ||
       "csv") as ExportFormat;
 
-    const { dataset, label, rows } = await getRows(req);
-    const fileBase = safeFileName(`${label}_${new Date().toISOString().slice(0, 10)}`);
+    const { dataset, label, rows } = await getRows(req, context);
+    const fileBase = safeFileName(
+      `${label}_${new Date().toISOString().slice(0, 10)}`
+    );
 
     if (format === "json") {
       return NextResponse.json({
@@ -462,6 +530,13 @@ export async function GET(req: NextRequest) {
           dataset,
           label,
           count: rows.length,
+          scope: {
+            organisation_id: context.organisation_id,
+            project_id: effectiveProjectId(
+              context,
+              cleanText(url.searchParams.get("project_id"))
+            ),
+          },
           rows,
         },
       });
