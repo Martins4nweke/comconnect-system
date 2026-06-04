@@ -1,9 +1,12 @@
+import { Buffer } from "node:buffer";
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
 import { requireParticipantSession } from "@/lib/participant-app/auth";
 import { recordParticipantActivity } from "@/lib/participant-app/sync";
+
+export const runtime = "nodejs";
 
 const DEFAULT_BUCKET = "participant-chat-media";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -230,6 +233,21 @@ const createdOfflineAt =
       return fail(threadUpdateError.message, 500);
     }
 
+    const { error: inboxError } = await supabaseAdmin.from("inbox_items").insert({
+  organisation_id: auth.context.organisation_id,
+  project_id: auth.context.project_id,
+  participant_id: auth.context.participant_id,
+  source_type: "chat_message",
+  source_id: message.id,
+  title: `New ${mediaLabel(mediaType).toLowerCase()} chat message`,
+  summary: finalMessageText,
+  priority: mediaType === "video" ? "medium" : "normal",
+  status: "open",
+});
+
+if (inboxError) {
+  return fail(inboxError.message, 500);
+}
     await recordParticipantActivity(
       auth.context,
       "chat_media_sent",
