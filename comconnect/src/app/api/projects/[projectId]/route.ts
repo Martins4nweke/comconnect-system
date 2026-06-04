@@ -1,61 +1,113 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { createAuditLog } from "@/lib/comconnect-core/audit";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
 
-type Params = { params: Promise<{ projectId: string }> };
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const { projectId } = await params;
+function normaliseProjectCode(value: unknown) {
+  return cleanText(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]+/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 40);
+}
+
+export async function GET(
+  _req: NextRequest,
+  context: { params: Promise<{ projectId: string }> }
+) {
+  const { projectId } = await context.params;
 
   const { data, error } = await supabaseAdmin
     .from("projects")
-    .select("*, organisations(name), project_modules(*), project_channel_settings(*)")
+    .select("*")
     .eq("id", projectId)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) return fail("Project not found", 404);
+  if (error) return fail(error.message, 500);
+  if (!data) return fail("Project not found", 404);
+
   return ok(data);
 }
 
-export async function PATCH(req: NextRequest, { params }: Params) {
-  const { projectId } = await params;
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Promise<{ projectId: string }> }
+) {
+  const { projectId } = await context.params;
   const body = await req.json().catch(() => null);
-  if (!body) return fail("Request body is required");
 
-  const allowed = [
-    "name",
-    "project_code",
-    "description",
-    "status",
-    "default_language",
-    "app_access_enabled",
-    "settings",
-  ];
+  const updatePayload: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
 
-  const payload: Record<string, unknown> = {};
-  for (const key of allowed) {
-    if (key in body) payload[key] = body[key];
+  if (body?.name !== undefined) {
+    const name = cleanText(body.name);
+    if (!name) return fail("Project name cannot be empty", 400);
+    updatePayload.name = name;
+  }
+
+  if (body?.project_code !== undefined) {
+    const projectCode = normaliseProjectCode(body.project_code);
+    if (!projectCode) return fail("Project code cannot be empty", 400);
+    updatePayload.project_code = projectCode;
+  }
+
+  if (body?.description !== undefined) {
+    updatePayload.description = cleanText(body.description) || null;
+  }
+
+  if (body?.status !== undefined) {
+    const status = cleanText(body.status) || "active";
+    updatePayload.status = status;
+  }
+
+  if (body?.default_language !== undefined) {
+    updatePayload.default_language = cleanText(body.default_language) || "en";
+  }
+
+  if (body?.app_access_enabled !== undefined) {
+    updatePayload.app_access_enabled = Boolean(body.app_access_enabled);
+  }
+
+  if (body?.settings !== undefined) {
+    updatePayload.settings = body.settings ?? {};
   }
 
   const { data, error } = await supabaseAdmin
     .from("projects")
-    .update(payload)
+    .update(updatePayload)
     .eq("id", projectId)
     .select("*")
     .single();
 
   if (error) return fail(error.message, 500);
 
-  await createAuditLog({
-    organisation_id: data.organisation_id,
-    project_id: data.id,
-    actor_type: "dashboard_user",
-    action: "project.updated",
-    entity_type: "project",
-    entity_id: data.id,
-    metadata: payload,
-  });
-
   return ok(data);
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ projectId: string }> }
+) {
+  const { projectId } = await context.params;
+
+  const { data, error } = await supabaseAdmin
+    .from("projects")
+    .update({
+      status: "archived",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", projectId)
+    .select("*")
+    .single();
+
+  if (error) return fail(error.message, 500);
+
+  return ok({
+    archived: true,
+    project: data,
+  });
 }
