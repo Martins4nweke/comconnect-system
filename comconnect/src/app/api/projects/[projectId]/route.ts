@@ -60,8 +60,7 @@ export async function PATCH(
   }
 
   if (body?.status !== undefined) {
-    const status = cleanText(body.status) || "active";
-    updatePayload.status = status;
+    updatePayload.status = cleanText(body.status) || "active";
   }
 
   if (body?.default_language !== undefined) {

@@ -217,6 +217,13 @@ export const sidebarNavigation: NavigationGroup[] = [
         permission: "billing:read",
         tag: "Billing",
       },
+{
+        title: "Projects",
+        href: "/projects",
+        description: "Create and manage projects within an organisation.",
+        permission: "project:read",
+        tag: "Admin",
+      },
       {
         title: "Project Settings",
         href: "/project-settings",
