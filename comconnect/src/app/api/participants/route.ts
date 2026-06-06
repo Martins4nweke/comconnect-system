@@ -12,7 +12,9 @@ function cleanText(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function canWriteParticipants(context: Awaited<ReturnType<typeof getScopedContext>>) {
+function canWriteParticipants(
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
   const organisationRole = cleanText(context.organisation_role).toLowerCase();
   const projectRole = cleanText(context.project_role).toLowerCase();
 
@@ -29,8 +31,40 @@ function canWriteParticipants(context: Awaited<ReturnType<typeof getScopedContex
   );
 }
 
-async function resolveProject(body: any, context: Awaited<ReturnType<typeof getScopedContext>>) {
-  const projectId = cleanText(body?.project_id) || cleanText(context.active_project_id);
+function resolveAllowedProjectId(
+  context: Awaited<ReturnType<typeof getScopedContext>>,
+  requestedProjectId?: string | null
+) {
+  const requested = cleanText(requestedProjectId);
+
+  if (requested) {
+    if (
+      requested === context.active_project_id ||
+      context.allowed_project_ids.includes(requested)
+    ) {
+      return requested;
+    }
+
+    throw new Error("Project not found or not allowed.");
+  }
+
+  if (context.active_project_id) {
+    return context.active_project_id;
+  }
+
+  if (context.allowed_project_ids.length > 0) {
+    return context.allowed_project_ids[0];
+  }
+
+  throw new Error("No accessible project found.");
+}
+
+async function resolveProject(
+  body: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const projectId =
+    cleanText(body?.project_id) || cleanText(context.active_project_id);
   const projectCode = cleanText(body?.project_code);
 
   let query = supabaseAdmin
@@ -53,7 +87,10 @@ async function resolveProject(body: any, context: Awaited<ReturnType<typeof getS
     throw new Error("Project not found or not allowed.");
   }
 
-  if (!context.allowed_project_ids.includes(project.id)) {
+  if (
+    project.id !== context.active_project_id &&
+    !context.allowed_project_ids.includes(project.id)
+  ) {
     throw new Error("You do not have access to this project.");
   }
 
@@ -64,22 +101,17 @@ export async function GET(req: NextRequest) {
   try {
     const context = await getScopedContext(req);
 
-    const q = req.nextUrl.searchParams.get("q");
+    const q = cleanText(req.nextUrl.searchParams.get("q"));
+    const requestedProjectId = req.nextUrl.searchParams.get("project_id");
+    const projectId = resolveAllowedProjectId(context, requestedProjectId);
 
     let query = supabaseAdmin
       .from("participants")
       .select("*, projects(name, project_code), organisations(name)")
       .eq("organisation_id", context.organisation_id)
+      .eq("project_id", projectId)
       .order("created_at", { ascending: false })
-      .limit(200);
-
-    if (context.active_project_id) {
-      query = query.eq("project_id", context.active_project_id);
-    } else if (context.allowed_project_ids.length > 0) {
-      query = query.in("project_id", context.allowed_project_ids);
-    } else {
-      query = query.eq("project_id", "__no_project_access__");
-    }
+      .limit(500);
 
     if (q) {
       query = query.or(

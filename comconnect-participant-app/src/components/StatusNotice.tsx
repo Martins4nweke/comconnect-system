@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from "react-native";
+import { theme } from "../theme";
 
 export function StatusNotice({
   message,
@@ -25,28 +26,36 @@ export function StatusNotice({
 
 const styles = StyleSheet.create({
   box: {
-    backgroundColor: "white",
-    borderWidth: 1.5,
-    borderColor: "#171717",
-    borderRadius: 16,
-    padding: 12,
+    backgroundColor: theme.blueSoft ?? "#EFF6FF",
+    borderWidth: 1,
+    borderColor: theme.border ?? "#E2E8F0",
+    borderRadius: 18,
+    padding: 13,
     marginBottom: 10,
+    shadowColor: theme.shadow ?? theme.black,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 1,
   },
 
   success: {
-    backgroundColor: "#ECFDF5",
+    backgroundColor: theme.greenSoft ?? "#ECFDF5",
+    borderColor: theme.green,
   },
 
   offline: {
-    backgroundColor: "#FFF7ED",
+    backgroundColor: theme.orangeSoft ?? "#FFF3EA",
+    borderColor: theme.orange,
   },
 
   error: {
-    backgroundColor: "#FEF2F2",
+    backgroundColor: theme.redSoft ?? "#FEF2F2",
+    borderColor: theme.red,
   },
 
   text: {
-    color: "#171717",
+    color: theme.black,
     fontWeight: "800",
     fontSize: 14,
     lineHeight: 20,

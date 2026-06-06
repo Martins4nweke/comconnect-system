@@ -14,9 +14,11 @@ type QuestionInput = {
   question_type?: string;
   required?: boolean;
   sort_order?: number;
+  question_order?: number;
   options?: unknown;
   validation?: unknown;
   scoring?: unknown;
+  settings?: unknown;
   metadata?: Record<string, unknown>;
 };
 
@@ -28,27 +30,121 @@ const ALLOWED_QUESTION_TYPES = new Set([
   "single_choice",
   "multiple_choice",
   "date",
-  "time",
-  "datetime",
   "rating",
-  "likert",
-  "bp_reading",
-  "medication_adherence",
-  "consent_confirmation",
+  "symptom_checklist",
+  "measurement",
 ]);
 
-function normaliseQuestionType(value: unknown) {
-  const type = String(value ?? "short_text").trim();
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
-  if (ALLOWED_QUESTION_TYPES.has(type)) {
-    return type;
+function normaliseQuestionType(value: unknown) {
+  const raw = cleanText(value).toLowerCase();
+
+  /*
+    The database has a strict check constraint.
+    These aliases allow the dashboard/app to send friendlier names
+    while the API stores the database-approved values.
+  */
+  const aliases: Record<string, string> = {
+    text: "short_text",
+    short_text: "short_text",
+    short: "short_text",
+
+    textarea: "long_text",
+    long_text: "long_text",
+    long: "long_text",
+
+    numeric: "number",
+    number: "number",
+
+    yesno: "yes_no",
+    yes_no: "yes_no",
+
+    radio: "single_choice",
+    select: "single_choice",
+    single_choice: "single_choice",
+
+    checkbox: "multiple_choice",
+    multiple_choice: "multiple_choice",
+
+    date: "date",
+    rating: "rating",
+    symptom_checklist: "symptom_checklist",
+    measurement: "measurement",
+  };
+
+  const normalised = aliases[raw] ?? "short_text";
+
+  if (ALLOWED_QUESTION_TYPES.has(normalised)) {
+    return normalised;
   }
 
   return "short_text";
 }
 
+function toAppQuestionType(questionType: string) {
+  if (questionType === "short_text") return "text";
+  if (questionType === "long_text") return "textarea";
+  if (questionType === "single_choice") return "radio";
+  if (questionType === "multiple_choice") return "checkbox";
+  if (questionType === "symptom_checklist") return "checkbox";
+  if (questionType === "measurement") return "number";
+
+  return questionType;
+}
+
 function buildQuestionCode(index: number) {
   return `Q${String(index + 1).padStart(3, "0")}`;
+}
+
+function toJsonArray(value: unknown) {
+  if (Array.isArray(value)) return value;
+  return [];
+}
+
+function toJsonObject(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return {};
+}
+
+function getSortOrder(question: QuestionInput, index: number) {
+  if (typeof question.sort_order === "number") return question.sort_order;
+  if (typeof question.question_order === "number") return question.question_order;
+  return index + 1;
+}
+
+function buildFormSchemaFromQuestions(questions: any[]) {
+  return {
+    fields: questions.map((question, index) => {
+      const validation = toJsonObject(question.validation);
+      const questionType = cleanText(question.question_type) || "short_text";
+
+      return {
+        key: cleanText(question.question_code) || buildQuestionCode(index),
+        label: cleanText(question.question_text) || `Question ${index + 1}`,
+        type: toAppQuestionType(questionType),
+        required: Boolean(question.required),
+        options: Array.isArray(question.options) ? question.options : [],
+        min:
+          typeof validation.min === "number"
+            ? validation.min
+            : undefined,
+        max:
+          typeof validation.max === "number"
+            ? validation.max
+            : undefined,
+        placeholder:
+          typeof validation.placeholder === "string"
+            ? validation.placeholder
+            : undefined,
+      };
+    }),
+  };
 }
 
 async function resolveProject(body: any) {
@@ -129,60 +225,66 @@ export async function POST(req: NextRequest) {
 
     const questionnaireType = body?.questionnaire_type ?? body?.type ?? "custom";
 
+    const questions = Array.isArray(body?.questions)
+      ? (body.questions as QuestionInput[])
+      : [];
+
     const { data: questionnaire, error } = await supabaseAdmin
       .from("questionnaires")
       .insert({
         organisation_id: project.organisation_id,
         project_id: project.id,
-        title: requireString(body.title, "title"),
-        description: body.description ?? null,
-        language: body.language ?? "en",
-        status: body.status ?? "draft",
-        version_label: body.version_label ?? "v1.0",
+        title: requireString(body?.title, "title"),
+        description: body?.description ?? null,
+        language: body?.language ?? "en",
+        status: body?.status ?? "draft",
+        version_label: body?.version_label ?? "v1.0",
+        form_schema: { fields: [] },
         settings: {
-          ...(body.settings ?? {}),
+          ...(body?.settings ?? {}),
           questionnaire_type: questionnaireType,
-          allow_offline_completion: body.allow_offline_completion ?? true,
-          allow_partial_save: body.allow_partial_save ?? true,
-          created_from: body.created_from ?? "questionnaires_api",
-          project_code: body.project_code ?? null,
+          allow_offline_completion: body?.allow_offline_completion ?? true,
+          allow_partial_save: body?.allow_partial_save ?? true,
+          created_from: body?.created_from ?? "questionnaires_api",
+          project_code: body?.project_code ?? null,
         },
         published_at:
-          body.status === "published" ? new Date().toISOString() : null,
+          body?.status === "published" ? new Date().toISOString() : null,
       })
       .select("*")
       .single();
 
     if (error) return fail(error.message, 500);
 
-    const questions = Array.isArray(body.questions)
-      ? (body.questions as QuestionInput[])
-      : [];
-
-    let insertedQuestions: unknown[] = [];
+    let insertedQuestions: any[] = [];
 
     if (questions.length > 0) {
-      const questionRows = questions.map((question, index) => ({
-  organisation_id: project.organisation_id,
-  project_id: project.id,
-  questionnaire_id: questionnaire.id,
-  question_code:
-    question.question_code?.trim() || buildQuestionCode(index),
-  question_text: requireString(
-    question.question_text,
-    `questions[${index}].question_text`
-  ),
-  question_type: normaliseQuestionType(question.question_type),
-  required:
-    typeof question.required === "boolean" ? question.required : false,
-  sort_order:
-    typeof question.sort_order === "number"
-      ? question.sort_order
-      : index + 1,
-  options: question.options ?? [],
-  validation: question.validation ?? {},
-  scoring: question.scoring ?? {},
-}));
+      const questionRows = questions.map((question, index) => {
+        const questionType = normaliseQuestionType(question.question_type);
+        const sortOrder = getSortOrder(question, index);
+        const questionCode =
+          cleanText(question.question_code) || buildQuestionCode(index);
+
+        return {
+          organisation_id: project.organisation_id,
+          project_id: project.id,
+          questionnaire_id: questionnaire.id,
+          question_order: sortOrder,
+          sort_order: sortOrder,
+          question_code: questionCode,
+          question_text: requireString(
+            question.question_text,
+            `questions[${index}].question_text`
+          ),
+          question_type: questionType,
+          required:
+            typeof question.required === "boolean" ? question.required : false,
+          options: toJsonArray(question.options),
+          validation: toJsonObject(question.validation),
+          scoring: toJsonObject(question.scoring),
+          settings: toJsonObject(question.settings ?? question.metadata),
+        };
+      });
 
       const { data: createdQuestions, error: questionError } =
         await supabaseAdmin
@@ -195,6 +297,21 @@ export async function POST(req: NextRequest) {
       }
 
       insertedQuestions = createdQuestions ?? [];
+
+      const formSchema = buildFormSchemaFromQuestions(insertedQuestions);
+
+      const { error: schemaError } = await supabaseAdmin
+        .from("questionnaires")
+        .update({
+          form_schema: formSchema,
+        })
+        .eq("id", questionnaire.id);
+
+      if (schemaError) {
+        return fail(schemaError.message, 500);
+      }
+
+      questionnaire.form_schema = formSchema;
     }
 
     await createAuditLog({
@@ -207,8 +324,8 @@ export async function POST(req: NextRequest) {
       metadata: {
         title: questionnaire.title,
         questionnaire_type: questionnaireType,
-        question_count: questions.length,
-        project_code: body.project_code ?? null,
+        question_count: insertedQuestions.length,
+        project_code: body?.project_code ?? null,
       },
     });
 

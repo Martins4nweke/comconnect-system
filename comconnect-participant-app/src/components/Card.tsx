@@ -65,21 +65,22 @@ export function Card({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.white,
-    borderWidth: 1.5,
-    borderColor: theme.black,
-    borderRadius: 18,
-    padding: 14,
+    borderWidth: 1,
+    borderColor: theme.border ?? "#E2E8F0",
+    borderRadius: 22,
+    padding: 15,
     marginBottom: 10,
-    shadowColor: theme.black,
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 0.7,
-    shadowRadius: 0,
+    shadowColor: theme.shadow ?? theme.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
     elevation: 2,
   },
 
   highlightCard: {
-    borderColor: "#16A34A",
-    borderWidth: 2.5,
+    borderColor: theme.green,
+    backgroundColor: theme.greenSoft ?? "#ECFDF5",
+    borderWidth: 1.5,
   },
 
   pressable: {
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
   },
 
   pressed: {
-    opacity: 0.75,
+    opacity: 0.82,
     transform: [{ scale: 0.99 }],
   },
 
@@ -112,7 +113,7 @@ const styles = StyleSheet.create({
   },
 
   subtitle: {
-    marginTop: 6,
+    marginTop: 7,
     color: theme.muted,
     fontWeight: "600",
     fontSize: 14,
@@ -120,22 +121,22 @@ const styles = StyleSheet.create({
   },
 
   tag: {
-    maxWidth: 110,
-    backgroundColor: theme.orange,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    maxWidth: 120,
+    backgroundColor: theme.orangeSoft ?? "#FFF3EA",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 999,
     fontSize: 10,
     lineHeight: 13,
     fontWeight: "900",
-    color: theme.black,
+    color: theme.orangeDark ?? theme.orange,
     overflow: "hidden",
     textTransform: "uppercase",
   },
 
   highlightBadge: {
-    backgroundColor: "#DCFCE7",
-    color: "#166534",
+    backgroundColor: theme.greenSoft ?? "#ECFDF5",
+    color: theme.green,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
@@ -146,7 +147,7 @@ const styles = StyleSheet.create({
   },
 
   open: {
-    marginTop: 9,
+    marginTop: 10,
     color: theme.orange,
     fontWeight: "900",
     fontSize: 14,

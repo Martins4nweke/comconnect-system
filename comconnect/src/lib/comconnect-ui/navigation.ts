@@ -19,7 +19,7 @@ export const sidebarNavigation: NavigationGroup[] = [
     items: [
       {
         title: "Dashboard",
-        href: "/",
+        href: "/dashboard",
         description: "Main ComConnect overview.",
         permission: "dashboard:read",
         tag: "Home",
@@ -217,7 +217,14 @@ export const sidebarNavigation: NavigationGroup[] = [
         permission: "billing:read",
         tag: "Billing",
       },
-{
+      {
+        title: "Billing Review",
+        href: "/admin/billing-review",
+        description: "Superadmin receipt review, plan activation and wallet approval.",
+        permission: "billing:manage",
+        tag: "Admin",
+      },
+      {
         title: "Projects",
         href: "/projects",
         description: "Create and manage projects within an organisation.",

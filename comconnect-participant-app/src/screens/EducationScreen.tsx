@@ -1,5 +1,12 @@
 ﻿import { useState } from "react";
-import { Alert, Linking, Text, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Linking,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
 import { Screen } from "../components/Screen";
 import { Card } from "../components/Card";
 import { AppButton } from "../components/AppButton";
@@ -8,6 +15,7 @@ import { useAppContext } from "../context/AppContext";
 import { submitEducationProgress } from "../api/participantAppApi";
 import { enqueueOfflineAction } from "../storage/offlineQueue";
 import { saveSyncCache } from "../storage/localStore";
+import { theme } from "../theme";
 
 type StatusType = "success" | "offline" | "error" | "info";
 
@@ -56,73 +64,100 @@ function getEducationId(item: any) {
   return item.education_item_id ?? education.id ?? item.id;
 }
 
+function firstValue(...values: any[]) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+
+  return null;
+}
+
 function getTextContent(item: any) {
   const education = getEducation(item);
 
-  return (
+  return String(
     education.content ??
-    education.text_content ??
-    item.content ??
-    item.text_content ??
-    education.description ??
-    item.description ??
-    ""
+      education.text_content ??
+      item.content ??
+      item.text_content ??
+      education.description ??
+      item.description ??
+      ""
   );
 }
 
-function getDynamicMedia(item: any) {
-  const education = getEducation(item);
+function extractUrlsFromText(value: string) {
+  const matches = value.match(/https?:\/\/[^\s)]+/gi);
+  return matches ?? [];
+}
 
-  const metadata = education.metadata ?? item.metadata ?? {};
-  const settings = education.settings ?? item.settings ?? {};
+function looksLikeAudio(url: string) {
+  const lower = url.toLowerCase();
 
-  const videoUrl =
-    education.video_url ??
-    education.videoUrl ??
-    education.media_video_url ??
-    metadata.video_url ??
-    metadata.videoUrl ??
-    settings.video_url ??
-    settings.videoUrl ??
-    null;
+  return (
+    lower.includes(".mp3") ||
+    lower.includes(".m4a") ||
+    lower.includes(".wav") ||
+    lower.includes(".aac") ||
+    lower.includes("audio")
+  );
+}
 
-  const audioUrl =
-    education.audio_url ??
-    education.audioUrl ??
-    education.media_audio_url ??
-    metadata.audio_url ??
-    metadata.audioUrl ??
-    settings.audio_url ??
-    settings.audioUrl ??
-    null;
+function looksLikeVideo(url: string) {
+  const lower = url.toLowerCase();
 
-  const mediaUrl =
-    education.media_url ??
-    education.mediaUrl ??
-    education.content_url ??
-    education.contentUrl ??
-    metadata.media_url ??
-    metadata.mediaUrl ??
-    metadata.content_url ??
-    metadata.contentUrl ??
-    settings.media_url ??
-    settings.mediaUrl ??
-    settings.content_url ??
-    settings.contentUrl ??
-    null;
+  return (
+    lower.includes(".mp4") ||
+    lower.includes(".mov") ||
+    lower.includes(".webm") ||
+    lower.includes(".mkv") ||
+    lower.includes("youtube.com") ||
+    lower.includes("youtu.be") ||
+    lower.includes("vimeo.com") ||
+    lower.includes("video")
+  );
+}
 
-  const transcript =
-    education.transcript ??
-    metadata.transcript ??
-    settings.transcript ??
-    null;
+function getYouTubeVideoId(url: string | null | undefined) {
+  const raw = String(url ?? "").trim();
 
-  return {
-    videoUrl,
-    audioUrl,
-    mediaUrl,
-    transcript,
-  };
+  if (!raw) return null;
+
+  try {
+    const parsed = new URL(raw);
+
+    if (parsed.hostname.includes("youtu.be")) {
+      return parsed.pathname.replace("/", "").split("?")[0] || null;
+    }
+
+    if (parsed.hostname.includes("youtube.com")) {
+      const watchId = parsed.searchParams.get("v");
+      if (watchId) return watchId;
+
+      const embedMatch = parsed.pathname.match(/\/embed\/([^/?]+)/);
+      if (embedMatch?.[1]) return embedMatch[1];
+
+      const shortsMatch = parsed.pathname.match(/\/shorts\/([^/?]+)/);
+      if (shortsMatch?.[1]) return shortsMatch[1];
+    }
+  } catch {
+    const fallbackMatch = raw.match(
+      /(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/
+    );
+
+    return fallbackMatch?.[1] ?? null;
+  }
+
+  return null;
+}
+
+function getYouTubeThumbnail(url: string | null | undefined) {
+  const videoId = getYouTubeVideoId(url);
+
+  if (!videoId) return null;
+
+  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }
 
 async function openUrl(url: string | null | undefined) {
@@ -143,6 +178,238 @@ async function openUrl(url: string | null | undefined) {
   } catch {
     Alert.alert("Cannot open media", "The media link could not be opened.");
   }
+}
+
+function VideoPreviewCard({
+  videoUrl,
+  thumbnailUrl,
+  lowDataMode,
+}: {
+  videoUrl: string;
+  thumbnailUrl?: string | null;
+  lowDataMode?: boolean;
+}) {
+  const previewUrl = thumbnailUrl ?? getYouTubeThumbnail(videoUrl);
+
+  return (
+    <Pressable
+      onPress={() => openUrl(videoUrl)}
+      style={{
+        backgroundColor: theme.white,
+        borderWidth: 1.5,
+        borderColor: theme.border ?? "#E2E8F0",
+        borderRadius: 18,
+        overflow: "hidden",
+        marginBottom: 12,
+      }}
+    >
+      {previewUrl && !lowDataMode ? (
+        <Image
+          source={{ uri: previewUrl }}
+          style={{
+            width: "100%",
+            height: 180,
+            backgroundColor: theme.warmBg ?? "#FFF7F2",
+          }}
+          resizeMode="cover"
+        />
+      ) : (
+        <View
+          style={{
+            height: 150,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: theme.warmBg ?? "#FFF7F2",
+          }}
+        >
+          <Text
+            style={{
+              color: theme.orange,
+              fontSize: 42,
+              fontWeight: "900",
+            }}
+          >
+            ▶
+          </Text>
+
+          {lowDataMode ? (
+            <Text
+              style={{
+                color: theme.muted,
+                fontSize: 12,
+                fontWeight: "800",
+                marginTop: 6,
+              }}
+            >
+              Low-data mode: preview image hidden
+            </Text>
+          ) : null}
+        </View>
+      )}
+
+      <View style={{ padding: 12 }}>
+        <Text
+          style={{
+            color: theme.black,
+            fontSize: 15,
+            fontWeight: "900",
+          }}
+        >
+          Watch education video
+        </Text>
+
+        <Text
+          style={{
+            color: theme.muted,
+            fontSize: 12,
+            fontWeight: "700",
+            marginTop: 4,
+          }}
+          numberOfLines={1}
+        >
+          Tap to open video
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function getDynamicMedia(item: any) {
+  const education = getEducation(item);
+
+  const metadata = education.metadata ?? item.metadata ?? {};
+  const settings = education.settings ?? item.settings ?? {};
+  const payload = education.payload ?? item.payload ?? {};
+  const media = payload.media ?? metadata.media ?? settings.media ?? {};
+
+  const textContent = getTextContent(item);
+  const bodyUrls = extractUrlsFromText(textContent);
+
+  const thumbnailUrl = firstValue(
+    education.thumbnail_url,
+    education.thumbnailUrl,
+    education.video_thumbnail_url,
+    education.videoThumbnailUrl,
+    education.poster_url,
+    education.posterUrl,
+    item.thumbnail_url,
+    item.thumbnailUrl,
+    item.video_thumbnail_url,
+    item.videoThumbnailUrl,
+    item.poster_url,
+    item.posterUrl,
+    payload.thumbnail_url,
+    payload.thumbnailUrl,
+    payload.video_thumbnail_url,
+    payload.videoThumbnailUrl,
+    payload.poster_url,
+    payload.posterUrl,
+    metadata.thumbnail_url,
+    metadata.thumbnailUrl,
+    metadata.video_thumbnail_url,
+    metadata.videoThumbnailUrl,
+    metadata.poster_url,
+    metadata.posterUrl,
+    settings.thumbnail_url,
+    settings.thumbnailUrl,
+    settings.video_thumbnail_url,
+    settings.videoThumbnailUrl,
+    settings.poster_url,
+    settings.posterUrl,
+    media.thumbnail_url,
+    media.thumbnailUrl,
+    media.poster_url,
+    media.posterUrl
+  );
+
+  const explicitVideoUrl = firstValue(
+    education.video_url,
+    education.videoUrl,
+    education.media_video_url,
+    item.video_url,
+    item.videoUrl,
+    item.media_video_url,
+    payload.video_url,
+    payload.videoUrl,
+    metadata.video_url,
+    metadata.videoUrl,
+    settings.video_url,
+    settings.videoUrl,
+    media.video_url,
+    media.videoUrl
+  );
+
+  const explicitAudioUrl = firstValue(
+    education.audio_url,
+    education.audioUrl,
+    education.media_audio_url,
+    item.audio_url,
+    item.audioUrl,
+    item.media_audio_url,
+    payload.audio_url,
+    payload.audioUrl,
+    metadata.audio_url,
+    metadata.audioUrl,
+    settings.audio_url,
+    settings.audioUrl,
+    media.audio_url,
+    media.audioUrl
+  );
+
+  const explicitMediaUrl = firstValue(
+    education.media_url,
+    education.mediaUrl,
+    education.content_url,
+    education.contentUrl,
+    item.media_url,
+    item.mediaUrl,
+    item.content_url,
+    item.contentUrl,
+    payload.media_url,
+    payload.mediaUrl,
+    payload.content_url,
+    payload.contentUrl,
+    metadata.media_url,
+    metadata.mediaUrl,
+    metadata.content_url,
+    metadata.contentUrl,
+    settings.media_url,
+    settings.mediaUrl,
+    settings.content_url,
+    settings.contentUrl,
+    media.media_url,
+    media.mediaUrl,
+    media.url
+  );
+
+  const videoUrl =
+    explicitVideoUrl ?? bodyUrls.find((url) => looksLikeVideo(url)) ?? null;
+
+  const audioUrl =
+    explicitAudioUrl ?? bodyUrls.find((url) => looksLikeAudio(url)) ?? null;
+
+  const mediaUrl =
+    explicitMediaUrl ??
+    bodyUrls.find((url) => url !== videoUrl && url !== audioUrl) ??
+    null;
+
+  const transcript = firstValue(
+    education.transcript,
+    item.transcript,
+    payload.transcript,
+    metadata.transcript,
+    settings.transcript,
+    media.transcript
+  );
+
+  return {
+    videoUrl,
+    audioUrl,
+    mediaUrl,
+    thumbnailUrl,
+    transcript,
+    bodyUrls,
+  };
 }
 
 function updateEducationArray(
@@ -330,12 +597,23 @@ export function EducationScreen() {
     const education = getEducation(selectedItem);
     const media = getDynamicMedia(selectedItem);
     const textContent = getTextContent(selectedItem);
+    const otherLinks = media.bodyUrls.filter(
+      (url) =>
+        url !== media.videoUrl && url !== media.audioUrl && url !== media.mediaUrl
+    );
 
     return (
       <Screen
         title={education.title ?? selectedItem.title ?? "Education"}
         subtitle={education.topic ?? selectedItem.topic ?? "Education content"}
       >
+        <AppButton
+          label="← Back to education"
+          variant="secondary"
+          disabled={saving}
+          onPress={backToEducationList}
+        />
+
         <StatusNotice message={statusMessage} type={statusType} />
 
         <Card
@@ -351,18 +629,18 @@ export function EducationScreen() {
         {textContent ? (
           <View
             style={{
-              backgroundColor: "white",
+              backgroundColor: theme.white,
               borderWidth: 1.5,
-              borderColor: "#171717",
-              borderRadius: 16,
-              padding: 12,
+              borderColor: theme.border ?? "#E2E8F0",
+              borderRadius: 18,
+              padding: 14,
               marginBottom: 10,
             }}
           >
             <Text
               style={{
                 fontWeight: "700",
-                color: "#64748B",
+                color: theme.muted,
                 fontSize: 14,
                 lineHeight: 20,
               }}
@@ -382,10 +660,10 @@ export function EducationScreen() {
         ) : null}
 
         {media.videoUrl ? (
-          <AppButton
-            label={lowDataMode ? "Open video link" : "Watch video"}
-            variant="secondary"
-            onPress={() => openUrl(media.videoUrl)}
+          <VideoPreviewCard
+            videoUrl={media.videoUrl}
+            thumbnailUrl={media.thumbnailUrl}
+            lowDataMode={lowDataMode}
           />
         ) : null}
 
@@ -405,17 +683,19 @@ export function EducationScreen() {
           />
         ) : null}
 
+        {otherLinks.map((url, index) => (
+          <AppButton
+            key={`${url}-${index}`}
+            label={`Open link ${index + 1}`}
+            variant="secondary"
+            onPress={() => openUrl(url)}
+          />
+        ))}
+
         <AppButton
           label={saving ? "Saving..." : "Mark as completed"}
           disabled={saving}
           onPress={() => markCompleted(selectedItem)}
-        />
-
-        <AppButton
-          label="Back to education"
-          variant="secondary"
-          disabled={saving}
-          onPress={backToEducationList}
         />
       </Screen>
     );

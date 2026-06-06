@@ -8,48 +8,106 @@ import {
 } from "@/lib/research-care/module-access";
 import { requireString } from "@/lib/research-care/validation";
 import { sendParticipantPushNotification } from "@/lib/participant-app/notifications/push";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
 
-async function resolveProjectAndParticipant(body: any) {
-  const projectId = body?.project_id ? String(body.project_id).trim() : null;
-  const participantId = body?.participant_id
-    ? String(body.participant_id).trim()
-    : null;
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
-  const projectCode = body?.project_code
-    ? String(body.project_code).trim()
-    : null;
+function canManageAppointments(
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
 
-  const participantCode = body?.participant_code
-    ? String(body.participant_code).trim()
-    : null;
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    [
+      "project_manager",
+      "research_assistant",
+      "data_manager",
+      "clinician",
+      "nurse",
+    ].includes(projectRole)
+  );
+}
+
+function resolveAllowedProjectId(
+  context: Awaited<ReturnType<typeof getScopedContext>>,
+  requestedProjectId?: string | null
+) {
+  const requested = cleanText(requestedProjectId);
+
+  if (requested) {
+    if (
+      requested === context.active_project_id ||
+      context.allowed_project_ids.includes(requested)
+    ) {
+      return requested;
+    }
+
+    throw new Error("Project not found or not allowed.");
+  }
+
+  if (context.active_project_id) return context.active_project_id;
+
+  if (context.allowed_project_ids.length > 0) {
+    return context.allowed_project_ids[0];
+  }
+
+  throw new Error("No accessible project found.");
+}
+
+async function resolveProjectByCode(
+  context: Awaited<ReturnType<typeof getScopedContext>>,
+  projectCode: string
+) {
+  const { data: project, error } = await supabaseAdmin
+    .from("projects")
+    .select("id, organisation_id, project_code, status, app_access_enabled")
+    .eq("organisation_id", context.organisation_id)
+    .eq("project_code", projectCode)
+    .neq("status", "archived")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!project) throw new Error("Project code not found.");
+
+  if (!context.allowed_project_ids.includes(project.id)) {
+    throw new Error("You do not have access to this project.");
+  }
+
+  return project;
+}
+
+async function resolveProjectAndParticipant(
+  body: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const projectId = cleanText(body?.project_id);
+  const participantId = cleanText(body?.participant_id);
+  const projectCode = cleanText(body?.project_code);
+  const participantCode = cleanText(body?.participant_code);
 
   if (projectCode && participantCode) {
-    const { data: project, error: projectError } = await supabaseAdmin
-      .from("projects")
-      .select("id, organisation_id, project_code, status, app_access_enabled")
-      .eq("project_code", projectCode)
-      .maybeSingle();
-
-    if (projectError) {
-      throw new Error(projectError.message);
-    }
-
-    if (!project) {
-      throw new Error("Project code not found.");
-    }
+    const project = await resolveProjectByCode(context, projectCode);
 
     const { data: participant, error: participantError } = await supabaseAdmin
       .from("participants")
       .select(
         "id, organisation_id, project_id, participant_code, status, app_access_enabled"
       )
+      .eq("organisation_id", context.organisation_id)
       .eq("project_id", project.id)
       .eq("participant_code", participantCode)
       .maybeSingle();
 
-    if (participantError) {
-      throw new Error(participantError.message);
-    }
+    if (participantError) throw new Error(participantError.message);
 
     if (!participant) {
       throw new Error("Participant code not found for this project.");
@@ -62,13 +120,19 @@ async function resolveProjectAndParticipant(body: any) {
   }
 
   if (projectId && participantId) {
+    const allowedProjectId = resolveAllowedProjectId(context, projectId);
+
     const participant = await verifyParticipantInProject(
       participantId,
-      projectId
+      allowedProjectId
     );
 
+    if (participant.organisation_id !== context.organisation_id) {
+      throw new Error("Participant not found or not allowed.");
+    }
+
     return {
-      project_id: projectId,
+      project_id: allowedProjectId,
       participant,
     };
   }
@@ -79,7 +143,7 @@ async function resolveProjectAndParticipant(body: any) {
 }
 
 function formatAppointmentDate(value: unknown) {
-  const raw = String(value ?? "").trim();
+  const raw = cleanText(value);
 
   if (!raw) return "your appointment";
 
@@ -91,71 +155,88 @@ function formatAppointmentDate(value: unknown) {
 }
 
 export async function GET(req: NextRequest) {
-  const projectId = req.nextUrl.searchParams.get("project_id");
-  const projectCode = req.nextUrl.searchParams.get("project_code");
-  const participantId = req.nextUrl.searchParams.get("participant_id");
-  const participantCode = req.nextUrl.searchParams.get("participant_code");
+  try {
+    const context = await getScopedContext(req);
 
-  let resolvedProjectId = projectId;
+    const projectId = req.nextUrl.searchParams.get("project_id");
+    const projectCode = cleanText(req.nextUrl.searchParams.get("project_code"));
+    const participantId = cleanText(
+      req.nextUrl.searchParams.get("participant_id")
+    );
+    const participantCode = cleanText(
+      req.nextUrl.searchParams.get("participant_code")
+    );
 
-  if (!resolvedProjectId && projectCode) {
-    const { data: project, error: projectError } = await supabaseAdmin
-      .from("projects")
-      .select("id")
-      .eq("project_code", projectCode)
-      .maybeSingle();
+    let resolvedProjectId: string | null = null;
 
-    if (projectError) return fail(projectError.message, 500);
-    if (!project) return fail("Project code not found", 404);
+    if (projectCode) {
+      const project = await resolveProjectByCode(context, projectCode);
+      resolvedProjectId = project.id;
+    } else if (projectId) {
+      resolvedProjectId = resolveAllowedProjectId(context, projectId);
+    } else if (context.active_project_id) {
+      resolvedProjectId = context.active_project_id;
+    }
 
-    resolvedProjectId = project.id;
+    let query = supabaseAdmin
+      .from("appointments")
+      .select("*")
+      .eq("organisation_id", context.organisation_id)
+      .order("start_at", { ascending: true });
+
+    if (resolvedProjectId) {
+      query = query.eq("project_id", resolvedProjectId);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
+    }
+
+    if (participantId) {
+      query = query.eq("participant_id", participantId);
+    }
+
+    if (participantCode) {
+      const projectForParticipant =
+        resolvedProjectId ?? resolveAllowedProjectId(context, null);
+
+      const { data: participant, error: participantError } = await supabaseAdmin
+        .from("participants")
+        .select("id")
+        .eq("organisation_id", context.organisation_id)
+        .eq("project_id", projectForParticipant)
+        .eq("participant_code", participantCode)
+        .maybeSingle();
+
+      if (participantError) return fail(participantError.message, 500);
+      if (!participant) return fail("Participant code not found", 404);
+
+      query = query.eq("participant_id", participant.id);
+    }
+
+    const { data, error } = await query;
+
+    if (error) return fail(error.message, 500);
+
+    return ok(data ?? []);
+  } catch (error: any) {
+    return fail(error?.message ?? "Failed to load appointments", 500);
   }
-
-  if (!resolvedProjectId) {
-    return fail("project_id or project_code is required");
-  }
-
-  let resolvedParticipantId = participantId;
-
-  if (!resolvedParticipantId && participantCode) {
-    const { data: participant, error: participantError } = await supabaseAdmin
-      .from("participants")
-      .select("id")
-      .eq("project_id", resolvedProjectId)
-      .eq("participant_code", participantCode)
-      .maybeSingle();
-
-    if (participantError) return fail(participantError.message, 500);
-    if (!participant) return fail("Participant code not found", 404);
-
-    resolvedParticipantId = participant.id;
-  }
-
-  let query = supabaseAdmin
-    .from("appointments")
-    .select("*")
-    .eq("project_id", resolvedProjectId)
-    .order("start_at", { ascending: true });
-
-  if (resolvedParticipantId) {
-    query = query.eq("participant_id", resolvedParticipantId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return fail(error.message, 500);
-  }
-
-  return ok(data ?? []);
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-
   try {
+    const context = await getScopedContext(req);
+
+    if (!canManageAppointments(context)) {
+      return fail("You do not have permission to create appointments.", 403);
+    }
+
+    const body = await req.json().catch(() => null);
+
     const { project_id, participant } = await resolveProjectAndParticipant(
-      body
+      body,
+      context
     );
 
     await ensureModuleEnabled(project_id, "appointments");
@@ -166,26 +247,25 @@ export async function POST(req: NextRequest) {
         organisation_id: participant.organisation_id,
         project_id: participant.project_id,
         participant_id: participant.id,
-        appointment_type: body.appointment_type ?? "follow_up",
-        title: requireString(body.title, "title"),
-        description: body.description ?? null,
-        location: body.location ?? null,
-        start_at: requireString(body.start_at, "start_at"),
-        end_at: body.end_at ?? null,
-        status: body.status ?? "scheduled",
-        assigned_user_id: body.assigned_user_id ?? null,
+        appointment_type: body?.appointment_type ?? "follow_up",
+        title: requireString(body?.title, "title"),
+        description: body?.description ?? null,
+        location: body?.location ?? null,
+        start_at: requireString(body?.start_at, "start_at"),
+        end_at: body?.end_at ?? null,
+        status: body?.status ?? "scheduled",
+        assigned_user_id: body?.assigned_user_id ?? null,
         metadata: {
-          ...(body.metadata ?? {}),
-          project_code: body.project_code ?? null,
-          participant_code: body.participant_code ?? null,
+          ...(body?.metadata ?? {}),
+          project_code: body?.project_code ?? null,
+          participant_code: body?.participant_code ?? null,
+          created_from: body?.created_from ?? "appointments_api",
         },
       })
       .select("*")
       .single();
 
-    if (error) {
-      return fail(error.message, 500);
-    }
+    if (error) return fail(error.message, 500);
 
     let pushResult: unknown = null;
 
@@ -222,11 +302,14 @@ export async function POST(req: NextRequest) {
       entity_type: "appointment",
       entity_id: data.id,
       metadata: {
-        participant_id: participant.id,
-        participant_code: body.participant_code ?? null,
-        title: data.title,
-        push_result: pushResult,
-      },
+  participant_id: participant.id,
+  participant_code:
+    body?.participant_code ??
+    ("participant_code" in participant ? participant.participant_code : null),
+  title: data.title,
+  push_result: pushResult,
+},
+
     });
 
     return ok(
@@ -237,6 +320,6 @@ export async function POST(req: NextRequest) {
       201
     );
   } catch (error: any) {
-    return fail(error.message ?? "Failed to create appointment", 400);
+    return fail(error?.message ?? "Failed to create appointment", 400);
   }
 }

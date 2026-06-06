@@ -8,6 +8,7 @@ import { useAppContext } from "../context/AppContext";
 import { enqueueOfflineAction } from "../storage/offlineQueue";
 import { apiFetch } from "../api/client";
 import { saveSyncCache } from "../storage/localStore";
+import { theme } from "../theme";
 
 type StatusType = "success" | "offline" | "error" | "info";
 
@@ -66,11 +67,7 @@ function getQuestionnaire(item: any) {
 function getQuestionnaireId(item: any) {
   const questionnaire = getQuestionnaire(item);
 
-  return (
-    item.questionnaire_id ??
-    questionnaire.id ??
-    item.id
-  );
+  return item.questionnaire_id ?? questionnaire.id ?? item.id;
 }
 
 function getFields(questionnaire: any): QuestionField[] {
@@ -255,6 +252,22 @@ async function updateQuestionnaireInLocalCache(
   }
 }
 
+function QuestionLabel({ label }: { label: string }) {
+  return (
+    <Text
+      style={{
+        fontWeight: "900",
+        marginBottom: 8,
+        color: theme.black,
+        fontSize: 14,
+        lineHeight: 20,
+      }}
+    >
+      {label}
+    </Text>
+  );
+}
+
 export function QuestionnairesScreen() {
   const app = useAppContext();
   const items = pickQuestionnaires(app);
@@ -408,6 +421,13 @@ export function QuestionnairesScreen() {
           "Complete this questionnaire."
         }
       >
+        <AppButton
+          label="← Back to questionnaires"
+          variant="secondary"
+          disabled={submitting}
+          onPress={backToList}
+        />
+
         <StatusNotice message={statusMessage} type={statusType} />
 
         {fields.length === 0 ? (
@@ -428,17 +448,7 @@ export function QuestionnairesScreen() {
             ) {
               return (
                 <View key={field.key} style={{ marginBottom: 14 }}>
-                  <Text
-                    style={{
-                      fontWeight: "900",
-                      marginBottom: 8,
-                      color: "#171717",
-                      fontSize: 14,
-                      lineHeight: 20,
-                    }}
-                  >
-                    {field.label}
-                  </Text>
+                  <QuestionLabel label={field.label} />
 
                   {options.map((option) => (
                     <Card
@@ -461,17 +471,7 @@ export function QuestionnairesScreen() {
             if (type === "checkbox") {
               return (
                 <View key={field.key} style={{ marginBottom: 14 }}>
-                  <Text
-                    style={{
-                      fontWeight: "900",
-                      marginBottom: 8,
-                      color: "#171717",
-                      fontSize: 14,
-                      lineHeight: 20,
-                    }}
-                  >
-                    {field.label}
-                  </Text>
+                  <QuestionLabel label={field.label} />
 
                   {options.map((option) => {
                     const selected = Array.isArray(answers[field.key])
@@ -495,24 +495,14 @@ export function QuestionnairesScreen() {
 
             return (
               <View key={field.key} style={{ marginBottom: 14 }}>
-                <Text
-                  style={{
-                    fontWeight: "900",
-                    marginBottom: 6,
-                    color: "#171717",
-                    fontSize: 14,
-                    lineHeight: 20,
-                  }}
-                >
-                  {field.label}
-                </Text>
+                <QuestionLabel label={field.label} />
 
                 <TextInput
                   style={{
-                    backgroundColor: "white",
-                    borderWidth: 1.5,
-                    borderColor: "#171717",
-                    borderRadius: 16,
+                    backgroundColor: theme.white,
+                    borderWidth: 1,
+                    borderColor: theme.border ?? "#E2E8F0",
+                    borderRadius: 18,
                     paddingVertical: 12,
                     paddingHorizontal: 12,
                     fontWeight: "800",
@@ -520,8 +510,10 @@ export function QuestionnairesScreen() {
                     lineHeight: 20,
                     minHeight: type === "textarea" ? 100 : undefined,
                     textAlignVertical: type === "textarea" ? "top" : "center",
+                    color: theme.black,
                   }}
                   placeholder={field.placeholder ?? "Enter answer"}
+                  placeholderTextColor={theme.softMuted ?? theme.muted}
                   value={String(answers[field.key] ?? "")}
                   onChangeText={(value) => updateAnswer(field.key, value)}
                   keyboardType={type === "number" ? "numeric" : "default"}

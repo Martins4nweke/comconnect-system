@@ -1,13 +1,80 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
 import { verifyParticipantInProject } from "@/lib/research-care/module-access";
 
 const DEFAULT_BUCKET = "participant-chat-media";
-const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function canManageChat(context: Awaited<ReturnType<typeof getScopedContext>>) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
+
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    [
+      "project_manager",
+      "research_assistant",
+      "data_manager",
+      "clinician",
+      "nurse",
+    ].includes(projectRole)
+  );
+}
+
+function applyProjectScope(
+  query: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  query = query.eq("organisation_id", context.organisation_id);
+
+  if (context.active_project_id) {
+    return query.eq("project_id", context.active_project_id);
+  }
+
+  if (context.allowed_project_ids.length > 0) {
+    return query.in("project_id", context.allowed_project_ids);
+  }
+
+  return query.eq("project_id", "__no_project_access__");
+}
+
+function resolveAllowedProjectId(
+  context: Awaited<ReturnType<typeof getScopedContext>>,
+  requestedProjectId?: string | null
+) {
+  const requested = cleanText(requestedProjectId);
+
+  if (requested) {
+    if (
+      requested === context.active_project_id ||
+      context.allowed_project_ids.includes(requested)
+    ) {
+      return requested;
+    }
+
+    throw new Error("Project not found or not allowed.");
+  }
+
+  if (context.active_project_id) {
+    return context.active_project_id;
+  }
+
+  if (context.allowed_project_ids.length > 0) {
+    return context.allowed_project_ids[0];
+  }
+
+  throw new Error("No accessible project found.");
 }
 
 function extractMessageType(payload: any) {
@@ -22,17 +89,9 @@ function extractMessageType(payload: any) {
     return "audio";
   }
 
-  if (value === "image" || value === "photo") {
-    return "image";
-  }
-
-  if (value === "video") {
-    return "video";
-  }
-
-  if (value === "file") {
-    return "file";
-  }
+  if (value === "image" || value === "photo") return "image";
+  if (value === "video") return "video";
+  if (value === "file") return "file";
 
   return "text";
 }
@@ -99,24 +158,18 @@ function extractFileSize(payload: any) {
 async function createMediaUrl(payload: any) {
   const existingUrl = extractExistingMediaUrl(payload);
 
-  if (existingUrl) {
-    return existingUrl;
-  }
+  if (existingUrl) return existingUrl;
 
   const storagePath = extractStoragePath(payload);
   const bucket = extractStorageBucket(payload);
 
-  if (!storagePath) {
-    return "";
-  }
+  if (!storagePath) return "";
 
   const { data: signedData } = await supabaseAdmin.storage
     .from(bucket)
     .createSignedUrl(storagePath, SIGNED_URL_SECONDS);
 
-  if (signedData?.signedUrl) {
-    return signedData.signedUrl;
-  }
+  if (signedData?.signedUrl) return signedData.signedUrl;
 
   const { data: publicData } = supabaseAdmin.storage
     .from(bucket)
@@ -182,22 +235,46 @@ async function enrichChatMessage(message: any) {
   };
 }
 
-async function loadMessagesForThread(threadId: string) {
-  const { data, error } = await supabaseAdmin
+async function loadMessagesForThread({
+  context,
+  threadId,
+}: {
+  context: Awaited<ReturnType<typeof getScopedContext>>;
+  threadId: string;
+}) {
+  let query = supabaseAdmin
     .from("chat_messages")
     .select("*")
+    .eq("organisation_id", context.organisation_id)
     .eq("thread_id", threadId)
     .order("created_at", { ascending: true });
 
-  if (error) {
-    throw new Error(error.message);
+  if (context.active_project_id) {
+    query = query.eq("project_id", context.active_project_id);
+  } else if (context.allowed_project_ids.length > 0) {
+    query = query.in("project_id", context.allowed_project_ids);
+  } else {
+    query = query.eq("project_id", "__no_project_access__");
   }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
 
   return Promise.all((data ?? []).map((message: any) => enrichChatMessage(message)));
 }
 
-async function attachMessagesToThread(thread: any) {
-  const messages = await loadMessagesForThread(thread.id);
+async function attachMessagesToThread({
+  context,
+  thread,
+}: {
+  context: Awaited<ReturnType<typeof getScopedContext>>;
+  thread: any;
+}) {
+  const messages = await loadMessagesForThread({
+    context,
+    threadId: thread.id,
+  });
 
   return {
     ...thread,
@@ -206,59 +283,103 @@ async function attachMessagesToThread(thread: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const projectId = req.nextUrl.searchParams.get("project_id");
-  const participantId = req.nextUrl.searchParams.get("participant_id");
-  const threadId = req.nextUrl.searchParams.get("thread_id");
+  try {
+    const context = await getScopedContext(req);
 
-  if (threadId) {
-    const { data: thread, error } = await supabaseAdmin
+    const requestedProjectId = req.nextUrl.searchParams.get("project_id");
+    const participantId = cleanText(req.nextUrl.searchParams.get("participant_id"));
+    const threadId = cleanText(req.nextUrl.searchParams.get("thread_id"));
+
+    if (threadId) {
+      let query = supabaseAdmin
+        .from("chat_threads")
+        .select(
+          "*, participants(participant_code, phone_number, first_name, last_name, metadata)"
+        )
+        .eq("id", threadId);
+
+      query = applyProjectScope(query, context);
+
+      const { data: thread, error } = await query.maybeSingle();
+
+      if (error) return fail(error.message, 500);
+      if (!thread) return fail("Chat thread not found or not allowed.", 404);
+
+      const threadWithMessages = await attachMessagesToThread({
+        context,
+        thread,
+      });
+
+      return ok([threadWithMessages]);
+    }
+
+    const projectId = requestedProjectId
+      ? resolveAllowedProjectId(context, requestedProjectId)
+      : null;
+
+    let query = supabaseAdmin
       .from("chat_threads")
-      .select("*, participants(participant_code, display_name, phone_number)")
-      .eq("id", threadId)
-      .maybeSingle();
+      .select(
+        "*, participants(participant_code, phone_number, first_name, last_name, metadata)"
+      )
+      .eq("organisation_id", context.organisation_id)
+      .order("updated_at", { ascending: false });
+
+    if (projectId) {
+      query = query.eq("project_id", projectId);
+    } else if (context.active_project_id) {
+      query = query.eq("project_id", context.active_project_id);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
+    }
+
+    if (participantId) {
+      query = query.eq("participant_id", participantId);
+    }
+
+    const { data, error } = await query;
 
     if (error) return fail(error.message, 500);
-    if (!thread) return fail("Chat thread not found", 404);
 
-    const threadWithMessages = await attachMessagesToThread(thread);
+    const threadsWithMessages = await Promise.all(
+      (data ?? []).map((thread: any) =>
+        attachMessagesToThread({
+          context,
+          thread,
+        })
+      )
+    );
 
-    return ok([threadWithMessages]);
+    return ok(threadsWithMessages);
+  } catch (error: any) {
+    return fail(error?.message ?? "Failed to load chat threads", 500);
   }
-
-  if (!projectId) return fail("project_id is required", 400);
-
-  let query = supabaseAdmin
-    .from("chat_threads")
-    .select("*, participants(participant_code, display_name, phone_number)")
-    .eq("project_id", projectId)
-    .order("updated_at", { ascending: false });
-
-  if (participantId) {
-    query = query.eq("participant_id", participantId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) return fail(error.message, 500);
-
-  const threadsWithMessages = await Promise.all(
-    (data ?? []).map((thread: any) => attachMessagesToThread(thread))
-  );
-
-  return ok(threadsWithMessages);
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-
-  if (!body?.project_id) return fail("project_id is required", 400);
-  if (!body?.participant_id) return fail("participant_id is required", 400);
-
   try {
+    const context = await getScopedContext(req);
+
+    if (!canManageChat(context)) {
+      return fail("You do not have permission to create chat threads.", 403);
+    }
+
+    const body = await req.json().catch(() => null);
+    const projectId = resolveAllowedProjectId(context, body?.project_id);
+    const participantId = cleanText(body?.participant_id);
+
+    if (!participantId) return fail("participant_id is required", 400);
+
     const participant = await verifyParticipantInProject(
-      body.participant_id,
-      body.project_id
+      participantId,
+      projectId
     );
+
+    if (participant.organisation_id !== context.organisation_id) {
+      return fail("Participant not found or not allowed.", 404);
+    }
 
     const { data, error } = await supabaseAdmin
       .from("chat_threads")
@@ -266,9 +387,9 @@ export async function POST(req: NextRequest) {
         organisation_id: participant.organisation_id,
         project_id: participant.project_id,
         participant_id: participant.id,
-        subject: body.subject ?? null,
-        status: body.status ?? "open",
-        assigned_user_id: body.assigned_user_id ?? null,
+        subject: body?.subject ?? null,
+        status: body?.status ?? "open",
+        assigned_user_id: body?.assigned_user_id ?? null,
         last_message_at: new Date().toISOString(),
       })
       .select("*")
@@ -278,6 +399,6 @@ export async function POST(req: NextRequest) {
 
     return ok(data, 201);
   } catch (error: any) {
-    return fail(error.message ?? "Failed to create chat thread", 400);
+    return fail(error?.message ?? "Failed to create chat thread", 400);
   }
 }

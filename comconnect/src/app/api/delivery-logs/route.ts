@@ -1,72 +1,104 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
+import { getScopedContext } from "@/lib/comconnect-core/access-scope";
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 export async function GET(req: NextRequest) {
-  const projectCode = req.nextUrl.searchParams.get("project_code");
-  const channel = req.nextUrl.searchParams.get("channel");
-  const status = req.nextUrl.searchParams.get("status");
-  const limit = Number(req.nextUrl.searchParams.get("limit") ?? 100);
+  try {
+    const context = await getScopedContext(req);
 
-  let projectId: string | null = null;
+    const channel = cleanText(req.nextUrl.searchParams.get("channel"));
+    const status = cleanText(req.nextUrl.searchParams.get("status"));
+    const participantId = cleanText(
+      req.nextUrl.searchParams.get("participant_id")
+    );
+    const limit = Number(req.nextUrl.searchParams.get("limit") ?? 100);
 
-  if (projectCode) {
-    const { data: project, error: projectError } = await supabaseAdmin
-      .from("projects")
-      .select("id")
-      .eq("project_code", projectCode)
-      .single();
+    let query = supabaseAdmin
+      .from("communication_delivery_events")
+      .select("*")
+      .eq("organisation_id", context.organisation_id)
+      .order("created_at", { ascending: false })
+      .limit(Math.min(Math.max(limit, 1), 200));
 
-    if (projectError || !project) {
-      return fail("Project code not found", 404);
+    if (context.active_project_id) {
+      query = query.eq("project_id", context.active_project_id);
+    } else if (context.allowed_project_ids.length > 0) {
+      query = query.in("project_id", context.allowed_project_ids);
+    } else {
+      query = query.eq("project_id", "__no_project_access__");
     }
 
-    projectId = project.id;
-  }
+    if (participantId) query = query.eq("participant_id", participantId);
+    if (channel) query = query.eq("channel", channel);
+    if (status) query = query.eq("status", status);
 
-  let query = supabaseAdmin
-    .from("communication_delivery_events")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(Math.min(Math.max(limit, 1), 200));
+    const { data: events, error } = await query;
 
-  if (projectId) query = query.eq("project_id", projectId);
-  if (channel) query = query.eq("channel", channel);
-  if (status) query = query.eq("status", status);
+    if (error) return fail(error.message, 500);
 
-  const { data: events, error } = await query;
-
-  if (error) return fail(error.message, 500);
-
-  const participantIds = Array.from(
-    new Set(
-      (events ?? [])
-        .map((event) => event.participant_id)
-        .filter(Boolean)
-    )
-  );
-
-  let participantMap = new Map<string, any>();
-
-  if (participantIds.length > 0) {
-    const { data: participants, error: participantError } = await supabaseAdmin
-      .from("participants")
-      .select("id, participant_code, phone_number, first_name, last_name, metadata")
-      .in("id", participantIds);
-
-    if (participantError) return fail(participantError.message, 500);
-
-    participantMap = new Map(
-      (participants ?? []).map((participant) => [participant.id, participant])
+    const participantIds = Array.from(
+      new Set(
+        (events ?? [])
+          .map((event) => event.participant_id)
+          .filter(Boolean)
+      )
     );
+
+    let participantMap = new Map<string, any>();
+
+    if (participantIds.length > 0) {
+      let participantQuery = supabaseAdmin
+        .from("participants")
+        .select(
+          "id, participant_code, phone_number, first_name, last_name, metadata"
+        )
+        .eq("organisation_id", context.organisation_id)
+        .in("id", participantIds);
+
+      if (context.active_project_id) {
+        participantQuery = participantQuery.eq(
+          "project_id",
+          context.active_project_id
+        );
+      } else if (context.allowed_project_ids.length > 0) {
+        participantQuery = participantQuery.in(
+          "project_id",
+          context.allowed_project_ids
+        );
+      } else {
+        participantQuery = participantQuery.eq(
+          "project_id",
+          "__no_project_access__"
+        );
+      }
+
+      const { data: participants, error: participantError } =
+        await participantQuery;
+
+      if (participantError) return fail(participantError.message, 500);
+
+      participantMap = new Map(
+        (participants ?? []).map((participant) => [
+          participant.id,
+          participant,
+        ])
+      );
+    }
+
+    const rows = (events ?? []).map((event) => ({
+      ...event,
+      participants: event.participant_id
+        ? participantMap.get(event.participant_id) ?? null
+        : null,
+    }));
+
+    return ok(rows);
+  } catch (error: any) {
+    return fail(error?.message ?? "Failed to load delivery logs", 500);
   }
-
-  const rows = (events ?? []).map((event) => ({
-    ...event,
-    participants: event.participant_id
-      ? participantMap.get(event.participant_id) ?? null
-      : null,
-  }));
-
-  return ok(rows);
 }

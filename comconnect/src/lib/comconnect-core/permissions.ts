@@ -1,4 +1,5 @@
 export type OrganisationRole =
+  | "platform_owner"
   | "superadmin"
   | "organisation_admin"
   | "billing_admin"
@@ -6,6 +7,8 @@ export type OrganisationRole =
   | "viewer";
 
 export type ProjectRole =
+  | "platform_owner"
+  | "superadmin"
   | "project_manager"
   | "research_assistant"
   | "follow_up_officer"
@@ -80,6 +83,8 @@ export const organisationRolePermissions: Record<
   OrganisationRole,
   Permission[]
 > = {
+  platform_owner: ["*"],
+
   superadmin: ["*"],
 
   organisation_admin: [
@@ -153,14 +158,14 @@ export const organisationRolePermissions: Record<
     "audit:read",
   ],
 
-  viewer: [
-    "dashboard:read",
-    "organisation:read",
-    "project:read",
-  ],
+  viewer: ["dashboard:read", "organisation:read", "project:read"],
 };
 
 export const projectRolePermissions: Record<ProjectRole, Permission[]> = {
+  platform_owner: ["*"],
+
+  superadmin: ["*"],
+
   project_manager: ["*"],
 
   research_assistant: [
@@ -306,14 +311,24 @@ export const projectRolePermissions: Record<ProjectRole, Permission[]> = {
   ],
 };
 
+export function normaliseRole(role: string | null | undefined) {
+  return String(role ?? "").trim().toLowerCase();
+}
+
 export function organisationRoleCan(
   role: OrganisationRole | string | null | undefined,
   permission: Permission
 ) {
-  if (!role) return false;
+  const cleanRole = normaliseRole(role);
+
+  if (!cleanRole) return false;
+
+  if (cleanRole === "platform_owner" || cleanRole === "superadmin") {
+    return true;
+  }
 
   const permissions =
-    organisationRolePermissions[role as OrganisationRole] ?? [];
+    organisationRolePermissions[cleanRole as OrganisationRole] ?? [];
 
   return permissions.includes("*") || permissions.includes(permission);
 }
@@ -322,9 +337,15 @@ export function projectRoleCan(
   role: ProjectRole | string | null | undefined,
   permission: Permission
 ) {
-  if (!role) return false;
+  const cleanRole = normaliseRole(role);
 
-  const permissions = projectRolePermissions[role as ProjectRole] ?? [];
+  if (!cleanRole) return false;
+
+  if (cleanRole === "platform_owner" || cleanRole === "superadmin") {
+    return true;
+  }
+
+  const permissions = projectRolePermissions[cleanRole as ProjectRole] ?? [];
 
   return permissions.includes("*") || permissions.includes(permission);
 }

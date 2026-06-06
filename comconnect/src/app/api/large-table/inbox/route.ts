@@ -2,13 +2,26 @@ import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { getScopedContext } from "@/lib/comconnect-core/access-scope";
-import { getLargeTableParams, getNextCursor } from "@/lib/large-table/pagination";
+import {
+  getLargeTableParams,
+  getNextCursor,
+} from "@/lib/large-table/pagination";
 import { applyCommonFilters, textSearchOr } from "@/lib/large-table/query";
-
-const PAGE_SIZE = 50;
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function displayParticipant(row: any) {
+  const participant = row?.participants;
+
+  return (
+    participant?.metadata?.display_name ??
+    `${participant?.first_name ?? ""} ${participant?.last_name ?? ""}`.trim() ??
+    participant?.participant_code ??
+    row?.participant_code ??
+    "—"
+  );
 }
 
 function extractChatMessageType(payload: any) {
@@ -23,17 +36,9 @@ function extractChatMessageType(payload: any) {
     return "audio";
   }
 
-  if (value === "image" || value === "photo") {
-    return "image";
-  }
-
-  if (value === "video") {
-    return "video";
-  }
-
-  if (value === "file") {
-    return "file";
-  }
+  if (value === "image" || value === "photo") return "image";
+  if (value === "video") return "video";
+  if (value === "file") return "file";
 
   return "text";
 }
@@ -157,27 +162,37 @@ function defaultHrefForSource(
   }
 }
 
+function applyInboxScope(
+  query: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  query = query.eq("organisation_id", context.organisation_id);
+
+  if (context.active_project_id) {
+    return query.eq("project_id", context.active_project_id);
+  }
+
+  if (context.allowed_project_ids.length > 0) {
+    return query.in("project_id", context.allowed_project_ids);
+  }
+
+  return query.eq("project_id", "__no_project_access__");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const context = await getScopedContext(req);
     const params = getLargeTableParams(req);
-    const limit = PAGE_SIZE;
 
     let query = supabaseAdmin
       .from("inbox_items")
-      .select("*, participants(participant_code, display_name, phone_number)")
-      .eq("organisation_id", context.organisation_id)
+      .select(
+        "*, participants(participant_code, phone_number, first_name, last_name, metadata)"
+      )
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .limit(params.limit);
 
-    if (context.active_project_id) {
-      query = query.eq("project_id", context.active_project_id);
-    } else if (context.allowed_project_ids.length > 0) {
-      query = query.in("project_id", context.allowed_project_ids);
-    } else {
-      query = query.eq("project_id", "__no_project_access__");
-    }
-
+    query = applyInboxScope(query, context);
     query = applyCommonFilters(query, params);
 
     const search = textSearchOr(params.q, [
@@ -191,6 +206,7 @@ export async function GET(req: NextRequest) {
     if (search) query = query.or(search);
 
     const { data, error } = await query;
+
     if (error) return fail(error.message, 500);
 
     const rows = data ?? [];
@@ -210,11 +226,23 @@ export async function GET(req: NextRequest) {
     >();
 
     if (chatMessageIds.length > 0) {
-      const { data: chatMessages } = await supabaseAdmin
+      let chatQuery = supabaseAdmin
         .from("chat_messages")
         .select("id, thread_id, message_text, payload")
         .eq("organisation_id", context.organisation_id)
         .in("id", chatMessageIds);
+
+      if (context.active_project_id) {
+        chatQuery = chatQuery.eq("project_id", context.active_project_id);
+      } else if (context.allowed_project_ids.length > 0) {
+        chatQuery = chatQuery.in("project_id", context.allowed_project_ids);
+      } else {
+        chatQuery = chatQuery.eq("project_id", "__no_project_access__");
+      }
+
+      const { data: chatMessages, error: chatError } = await chatQuery;
+
+      if (chatError) return fail(chatError.message, 500);
 
       chatMessageMap = new Map(
         (chatMessages ?? []).map((message: any) => [
@@ -268,10 +296,10 @@ export async function GET(req: NextRequest) {
         response_type: responseType,
         response_module: responseModule,
         action_href: actionHref,
-        participant_label:
-          row.participants?.display_name ??
-          row.participants?.participant_code ??
-          "—",
+        participant_label: displayParticipant(row),
+        participant_code:
+          row.participants?.participant_code ?? row.participant_code ?? "—",
+        participant_phone: row.participants?.phone_number ?? null,
 
         chat_thread_id: chatThreadId,
         chat_message_type: mediaType,
@@ -284,7 +312,7 @@ export async function GET(req: NextRequest) {
 
     return ok({
       rows: enrichedRows,
-      limit,
+      limit: params.limit,
       next_cursor: getNextCursor(enrichedRows),
       scope: {
         organisation_id: context.organisation_id,

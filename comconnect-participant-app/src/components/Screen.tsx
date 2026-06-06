@@ -77,15 +77,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 14,
-    paddingTop: 10,
-
-    /*
-      Extra bottom space is intentional.
-      It prevents the last button/card from hiding behind:
-      - Android navigation buttons
-      - phone gesture area
-      - browser/dev-client bottom controls
-    */
+    paddingTop: 12,
     paddingBottom: Platform.OS === "android" ? 96 : 72,
   },
 
@@ -105,13 +97,26 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    marginBottom: 14,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 24,
+    backgroundColor: theme.white,
+    borderWidth: 1,
+    borderColor: theme.border ?? "#E2E8F0",
+    shadowColor: theme.shadow ?? theme.black,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
 
   eyebrow: {
     color: theme.orange,
     fontWeight: "900",
-    fontSize: 15,
+    fontSize: 13,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
     marginBottom: 5,
   },
 

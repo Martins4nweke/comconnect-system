@@ -4,6 +4,11 @@ import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
 import { validateAssignmentTarget } from "@/lib/research-care/assignment";
 import { sendParticipantPushNotification } from "@/lib/participant-app/notifications/push";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
 
 type Params = { params: Promise<{ educationId: string }> };
 
@@ -13,6 +18,10 @@ type ParticipantTarget = {
   project_id: string;
   participant_code?: string | null;
 };
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 function cleanList(value: unknown) {
   if (Array.isArray(value)) {
@@ -29,10 +38,51 @@ function cleanList(value: unknown) {
   return [];
 }
 
-async function resolveParticipants(
-  projectId: string,
-  body: any
-): Promise<ParticipantTarget[]> {
+function canManageEducation(
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
+
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    [
+      "project_manager",
+      "research_assistant",
+      "data_manager",
+      "clinician",
+      "nurse",
+    ].includes(projectRole)
+  );
+}
+
+function applyEducationScope(
+  query: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  query = query.eq("organisation_id", context.organisation_id);
+
+  if (context.active_project_id) {
+    return query.eq("project_id", context.active_project_id);
+  }
+
+  if (context.allowed_project_ids.length > 0) {
+    return query.in("project_id", context.allowed_project_ids);
+  }
+
+  return query.eq("project_id", "__no_project_access__");
+}
+
+async function resolveParticipants({
+  organisationId,
+  projectId,
+  body,
+}: {
+  organisationId: string;
+  projectId: string;
+  body: any;
+}): Promise<ParticipantTarget[]> {
   const participantIds = cleanList(body?.participant_ids);
   const participantCodes = cleanList(body?.participant_codes);
 
@@ -51,6 +101,7 @@ async function resolveParticipants(
     const { data, error } = await supabaseAdmin
       .from("participants")
       .select("id, organisation_id, project_id, participant_code")
+      .eq("organisation_id", organisationId)
       .eq("project_id", projectId)
       .in("id", uniqueParticipantIds);
 
@@ -73,6 +124,7 @@ async function resolveParticipants(
     const { data, error } = await supabaseAdmin
       .from("participants")
       .select("id, organisation_id, project_id, participant_code")
+      .eq("organisation_id", organisationId)
       .eq("project_id", projectId)
       .in("participant_code", uniqueParticipantCodes);
 
@@ -115,8 +167,7 @@ async function sendEducationPush({
     project_id: item.project_id,
     participant_id: assignment.participant_id,
     title: "New education content",
-    body:
-      titleText.length > 90 ? `${titleText.slice(0, 90)}...` : titleText,
+    body: titleText.length > 90 ? `${titleText.slice(0, 90)}...` : titleText,
     data: {
       type: "education",
       screen: "education",
@@ -128,21 +179,36 @@ async function sendEducationPush({
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const { educationId } = await params;
-  const body = await req.json().catch(() => null);
-
-  const { data: item, error: itemError } = await supabaseAdmin
-    .from("education_items")
-    .select("id, organisation_id, project_id, title, description")
-    .eq("id", educationId)
-    .single();
-
-  if (itemError || !item) {
-    return fail("Education item not found", 404);
-  }
-
   try {
-    const participants = await resolveParticipants(item.project_id, body);
+    const context = await getScopedContext(req);
+
+    if (!canManageEducation(context)) {
+      return fail("You do not have permission to assign education items.", 403);
+    }
+
+    const { educationId } = await params;
+    const body = await req.json().catch(() => null);
+
+    let itemQuery = supabaseAdmin
+      .from("education_items")
+      .select("id, organisation_id, project_id, title, description")
+      .eq("id", educationId);
+
+    itemQuery = applyEducationScope(itemQuery, context);
+
+    const { data: item, error: itemError } = await itemQuery.maybeSingle();
+
+    if (itemError) return fail(itemError.message, 500);
+
+    if (!item) {
+      return fail("Education item not found or not allowed.", 404);
+    }
+
+    const participants = await resolveParticipants({
+      organisationId: item.organisation_id,
+      projectId: item.project_id,
+      body,
+    });
 
     /*
       Group assignment is kept for later.
@@ -297,6 +363,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       201
     );
   } catch (error: any) {
-    return fail(error.message ?? "Failed to assign education item", 400);
+    return fail(error?.message ?? "Failed to assign education item", 400);
   }
 }

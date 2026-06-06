@@ -122,28 +122,87 @@ participants: {
   ],
 },
   
-referrals: {
+  referrals: {
     title: "Referrals",
-    subtitle: "Compact referral queue with assignment, status update, pagination and bulk archive.",
+    subtitle:
+      "Create, review and manage participant referrals, follow-up status and care escalation.",
     eyebrow: "Care module",
     apiPath: "/api/large-table/referrals",
     bulkApiPath: "/api/large-table/referrals/bulk-action",
     parentHref: "/research-care/care",
     parentLabel: "Back to Care",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Care", href: "/research-care/care" }, { label: "Referrals" }],
-    searchPlaceholder: "Search reason or referral type...",
+    breadcrumbs: [
+      { label: "Research + Care", href: "/research-care" },
+      { label: "Care", href: "/research-care/care" },
+      { label: "Referrals" },
+    ],
+    searchPlaceholder:
+      "Search participant, reason, referral type, priority or status...",
     allowBulkActions: true,
-    statusOptions: ["new", "under_review", "follow_up_scheduled", "participant_not_ready", "contacted", "completed", "archived"],
+    statusOptions: [
+      "new",
+      "under_review",
+      "follow_up_scheduled",
+      "participant_not_ready",
+      "contacted",
+      "completed",
+      "archived",
+    ],
     columns: [
-      { key: "type", label: "Type", render: (r) => r.referral_type },
-      { key: "reason", label: "Reason", render: (r) => text(r.reason) },
-      { key: "priority", label: "Priority", render: (r) => <StatusPill value={r.priority} /> },
-      { key: "status", label: "Status", render: (r) => <StatusPill value={r.status} /> },
-      { key: "follow", label: "Follow-up", render: (r) => dt(r.follow_up_at) },
-      { key: "created", label: "Created", render: (r) => dt(r.created_at) },
+      {
+        key: "participant",
+        label: "Participant",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.participant_label ??
+                r.participants?.metadata?.display_name ??
+                r.participants?.participant_code ??
+                "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.participant_code ?? r.participants?.participant_code ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "referral",
+        label: "Referral",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {text(r.referral_label ?? r.reason, 70)}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.referral_type ?? "general"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "priority",
+        label: "Priority",
+        render: (r) => <StatusPill value={r.priority} />,
+      },
+      {
+        key: "status",
+        label: "Status",
+        render: (r) => <StatusPill value={r.status} />,
+      },
+      {
+        key: "follow",
+        label: "Follow-up",
+        render: (r) => dt(r.follow_up_at ?? r.follow_up_label),
+      },
+      {
+        key: "created",
+        label: "Created",
+        render: (r) => dt(r.created_at),
+      },
     ],
   },
- 
+
   inbox: {
     title: "Participant Response Inbox",
     subtitle:
@@ -240,26 +299,86 @@ referrals: {
     ],
   },
 
-  appointments: {
+    appointments: {
     title: "Appointments",
-    subtitle: "Project-aware appointment queue with pagination, filters and bulk actions.",
+    subtitle:
+      "Create, review and manage participant appointments, reminders and responses.",
     eyebrow: "Care module",
     apiPath: "/api/large-table/appointments",
     bulkApiPath: "/api/large-table/appointments/bulk-action",
     parentHref: "/research-care/care",
     parentLabel: "Back to Care",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Care", href: "/research-care/care" }, { label: "Appointments" }],
-    searchPlaceholder: "Search title, location, type...",
+    breadcrumbs: [
+      { label: "Research + Care", href: "/research-care" },
+      { label: "Care", href: "/research-care/care" },
+      { label: "Appointments" },
+    ],
+    searchPlaceholder: "Search title, participant, location, type or status...",
     allowBulkActions: true,
-    statusOptions: ["scheduled", "confirmed", "reschedule_requested", "cancelled", "completed", "missed", "archived"],
+    statusOptions: [
+      "scheduled",
+      "confirmed",
+      "reschedule_requested",
+      "cancelled",
+      "completed",
+      "missed",
+      "archived",
+    ],
     columns: [
-      { key: "title", label: "Title", render: (r) => r.title },
-      { key: "type", label: "Type", render: (r) => r.appointment_type },
-      { key: "start", label: "Start", render: (r) => dt(r.start_at) },
-      { key: "location", label: "Location", render: (r) => r.location ?? "—" },
-      { key: "status", label: "Status", render: (r) => <StatusPill value={r.status} /> },
+      {
+        key: "participant",
+        label: "Participant",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.participant_label ??
+                r.participants?.metadata?.display_name ??
+                r.participants?.participant_code ??
+                "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.participant_code ?? r.participants?.participant_code ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "appointment",
+        label: "Appointment",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {text(r.appointment_label ?? r.title, 60)}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.appointment_type ?? "follow_up"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "start",
+        label: "Date/Time",
+        render: (r) => dt(r.start_at ?? r.appointment_time_label),
+      },
+      {
+        key: "location",
+        label: "Location",
+        render: (r) => text(r.location, 40),
+      },
+      {
+        key: "status",
+        label: "Status",
+        render: (r) => <StatusPill value={r.status} />,
+      },
+      {
+        key: "created",
+        label: "Created",
+        render: (r) => dt(r.created_at),
+      },
     ],
   },
+
   education: {
     title: "Education Library",
     subtitle: "Versioned low-data video, audio and text education content.",
@@ -282,24 +401,82 @@ referrals: {
   },
   questionnaires: {
     title: "Questionnaires",
-    subtitle: "Dynamic project-specific forms and response tracking.",
+    subtitle: "Project-aware forms, assignments and response tracking.",
     eyebrow: "Research module",
     apiPath: "/api/large-table/questionnaires",
     bulkApiPath: "/api/large-table/questionnaires/bulk-action",
     parentHref: "/research-care/research",
     parentLabel: "Back to Research",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Research", href: "/research-care/research" }, { label: "Questionnaires" }],
-    searchPlaceholder: "Search questionnaire title...",
-    allowBulkActions: true,
-    statusOptions: ["draft", "published", "archived"],
-    columns: [
-      { key: "title", label: "Title", render: (r) => r.title },
-      { key: "version", label: "Version", render: (r) => r.version_label },
-      { key: "language", label: "Language", render: (r) => r.language },
-      { key: "status", label: "Status", render: (r) => <StatusPill value={r.status} /> },
-      { key: "published", label: "Published", render: (r) => dt(r.published_at) },
+    breadcrumbs: [
+      { label: "Research + Care", href: "/research-care" },
+      { label: "Research", href: "/research-care/research" },
+      { label: "Questionnaires" },
     ],
-  },
+    searchPlaceholder: "Search title, description, status or version...",
+    allowBulkActions: true,
+    statusOptions: ["draft", "ready", "published", "archived"],
+    columns: [
+      {
+        key: "title",
+        label: "Title",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">{text(r.title, 60)}</p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.questionnaire_type ?? r.settings?.questionnaire_type ?? "custom"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "project",
+        label: "Project",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.project_name ?? r.projects?.name ?? "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.project_code ?? r.projects?.project_code ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "version",
+        label: "Version",
+        render: (r) => r.version_label ?? "v1.0",
+      },
+      {
+        key: "language",
+        label: "Language",
+        render: (r) => r.language ?? "en",
+      },
+      {
+        key: "offline",
+        label: "Offline",
+        render: (r) =>
+          r.offline_label ??
+          (r.settings?.allow_offline_completion ? "yes" : "no"),
+      },
+      {
+        key: "status",
+        label: "Status",
+        render: (r) => <StatusPill value={r.status} />,
+      },
+      {
+        key: "published",
+        label: "Published",
+        render: (r) => dt(r.published_at),
+      },
+      {
+        key: "created",
+        label: "Created",
+        render: (r) => dt(r.created_at),
+      },
+    ],
+  },  
+
   consent: {
     title: "Consent Forms",
     subtitle: "Version-controlled consent forms and audit-ready consent tracking.",
@@ -319,26 +496,78 @@ referrals: {
       { key: "created", label: "Created", render: (r) => dt(r.created_at) },
     ],
   },
+
   observations: {
     title: "Health Check-ins",
-    subtitle: "Generic condition-neutral observations and project check-ins.",
+    subtitle: "Review participant BP readings, symptoms, adherence updates and other health observations.",
     eyebrow: "Care module",
     apiPath: "/api/large-table/health-observations",
     bulkApiPath: "/api/large-table/health-observations/bulk-action",
     parentHref: "/research-care/care",
     parentLabel: "Back to Care",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Care", href: "/research-care/care" }, { label: "Health Check-ins" }],
-    searchPlaceholder: "Search observation code...",
+    breadcrumbs: [
+      { label: "Research + Care", href: "/research-care" },
+      { label: "Care", href: "/research-care/care" },
+      { label: "Health Check-ins" },
+    ],
+    searchPlaceholder: "Search observation code, severity, alert or status...",
     allowBulkActions: true,
     statusOptions: ["active", "reviewed", "resolved", "archived"],
     columns: [
-      { key: "code", label: "Code", render: (r) => r.observation_code },
-      { key: "severity", label: "Severity", render: (r) => <StatusPill value={r.severity} /> },
-      { key: "alert", label: "Alert", render: (r) => r.alert_status },
-      { key: "status", label: "Status", render: (r) => <StatusPill value={r.status} /> },
-      { key: "submitted", label: "Submitted", render: (r) => dt(r.submitted_at) },
+      {
+        key: "participant",
+        label: "Participant",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.participant_label ??
+                r.participants?.metadata?.display_name ??
+                r.participants?.participant_code ??
+                "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.participant_code ?? r.participants?.participant_code ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "observation",
+        label: "Observation",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.observation_type_label ?? r.observation_code ?? "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.observation_type_code ?? r.observation_code ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "severity",
+        label: "Severity",
+        render: (r) => <StatusPill value={r.severity} />,
+      },
+      {
+        key: "alert",
+        label: "Alert",
+        render: (r) => <StatusPill value={r.alert_status} />,
+      },
+      {
+        key: "status",
+        label: "Status",
+        render: (r) => <StatusPill value={r.status} />,
+      },
+      {
+        key: "submitted",
+        label: "Submitted",
+        render: (r) => dt(r.submitted_at ?? r.submitted_label ?? r.created_at),
+      },
     ],
-  },
+  },  
+
   voice: {
     title: "Voice Tasks",
     subtitle: "Voice call task queue for fallback and urgent participant follow-up.",
@@ -359,22 +588,74 @@ referrals: {
       { key: "scheduled", label: "Scheduled", render: (r) => dt(r.scheduled_for) },
     ],
   },
-  audit: {
+  
+    audit: {
     title: "Audit Logs",
-    subtitle: "Read-only audit trail with server-side search and pagination.",
-    eyebrow: "Audit",
+    subtitle: "Read-only security and activity trail for the active organisation and project.",
+    eyebrow: "Admin",
     apiPath: "/api/large-table/audit-logs",
-    parentHref: "/research-care",
-    parentLabel: "Back to Research + Care",
-    breadcrumbs: [{ label: "Research + Care", href: "/research-care" }, { label: "Audit Logs" }],
-    searchPlaceholder: "Search action, actor, entity...",
+    parentHref: "/",
+    parentLabel: "Back to Dashboard",
+    breadcrumbs: [
+      { label: "Dashboard", href: "/" },
+      { label: "Audit Logs" },
+    ],
+    searchPlaceholder: "Search action, actor, entity or event...",
     allowBulkActions: false,
     statusOptions: [],
     columns: [
-      { key: "time", label: "Time", render: (r) => dt(r.created_at) },
-      { key: "actor", label: "Actor", render: (r) => r.actor_label ?? r.actor_type },
-      { key: "action", label: "Action", render: (r) => r.action },
-      { key: "entity", label: "Entity", render: (r) => r.entity_type ?? "—" },
+      {
+        key: "time",
+        label: "Time",
+        render: (r) => dt(r.created_at),
+      },
+      {
+        key: "actor",
+        label: "Actor",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.actor_label ?? r.actor_type ?? "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.actor_type ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "action",
+        label: "Action",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.audit_label ?? r.action ?? "Audit event"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.action ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "entity",
+        label: "Entity",
+        render: (r) => (
+          <div>
+            <p className="font-black text-slate-800">
+              {r.entity_label ?? r.entity_type ?? "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {r.entity_id ?? "—"}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: "project",
+        label: "Project",
+        render: (r) => r.project_id ?? "—",
+      },
     ],
   },
 };

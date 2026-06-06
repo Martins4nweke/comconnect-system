@@ -1,7 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  CompactCard,
+  FieldLabel,
+  LinkButton,
+  Notice,
+  PageHeader,
+  PageShell,
+  PrimaryButton,
+  SecondaryButton,
+  SelectInput,
+  StatusPill,
+  TextInput,
+} from "@/components/comconnect-ui/DashboardUI";
+
+type CurrentContext = {
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_id?: string | null;
+  active_project_name?: string | null;
+  active_project_code?: string | null;
+  project_role?: string | null;
+};
 
 type MediaAsset = {
   id: string;
@@ -29,6 +52,10 @@ const mediaTypes = [
   { value: "image", label: "Image" },
   { value: "document", label: "Document" },
 ];
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 function formatBytes(value?: number | null) {
   if (!value) return "—";
@@ -92,8 +119,29 @@ function useInMessageLink(asset: MediaAsset) {
   return `/messages?${params.toString()}`;
 }
 
+function canManageMedia(context: CurrentContext | null) {
+  const organisationRole = cleanText(context?.organisation_role).toLowerCase();
+  const projectRole = cleanText(context?.project_role).toLowerCase();
+
+  return (
+    ["superadmin", "organisation_admin", "org_admin", "admin"].includes(
+      organisationRole
+    ) ||
+    [
+      "project_manager",
+      "research_assistant",
+      "data_manager",
+      "clinician",
+      "nurse",
+    ].includes(projectRole)
+  );
+}
+
 export default function MediaLibraryPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [context, setContext] = useState<CurrentContext | null>(null);
+  const [loadingContext, setLoadingContext] = useState(false);
 
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [loading, setLoading] = useState(false);
@@ -114,6 +162,9 @@ export default function MediaLibraryPage() {
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+
+  const activeProjectId = cleanText(context?.active_project_id);
+  const canManage = canManageMedia(context);
 
   const filteredAssets = useMemo(() => {
     const text = search.trim().toLowerCase();
@@ -140,12 +191,42 @@ export default function MediaLibraryPage() {
     });
   }, [assets, search, typeFilter]);
 
-  async function loadAssets() {
+  async function loadContext() {
+    setLoadingContext(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/context/current", {
+        cache: "no-store",
+      });
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to load context.");
+      }
+
+      setContext(json.data as CurrentContext);
+    } catch (error: any) {
+      setErrorMessage(error?.message ?? "Failed to load context.");
+    } finally {
+      setLoadingContext(false);
+    }
+  }
+
+  async function loadAssets(nextProjectId = activeProjectId) {
     setLoading(true);
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/media-library?limit=100", {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+
+      if (nextProjectId) {
+        params.set("project_id", nextProjectId);
+      }
+
+      const response = await fetch(`/api/media-library?${params.toString()}`, {
         cache: "no-store",
       });
 
@@ -164,8 +245,15 @@ export default function MediaLibraryPage() {
   }
 
   useEffect(() => {
-    loadAssets();
+    void loadContext();
   }, []);
+
+  useEffect(() => {
+    if (activeProjectId) {
+      void loadAssets(activeProjectId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
 
   function resetUploadForm() {
     setTitle("");
@@ -180,11 +268,21 @@ export default function MediaLibraryPage() {
     }
   }
 
-  async function handleUpload(event: React.FormEvent<HTMLFormElement>) {
+  async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setNote("");
     setErrorMessage("");
+
+    if (!canManage) {
+      setErrorMessage("You do not have permission to upload media.");
+      return;
+    }
+
+    if (!activeProjectId) {
+      setErrorMessage("No active project selected.");
+      return;
+    }
 
     if (!title.trim()) {
       setErrorMessage("Media title is required.");
@@ -198,6 +296,7 @@ export default function MediaLibraryPage() {
 
     const formData = new FormData();
 
+    formData.append("project_id", activeProjectId);
     formData.append("title", title.trim());
     formData.append("media_type", mediaType);
     formData.append("language_code", languageCode.trim() || "en");
@@ -222,7 +321,7 @@ export default function MediaLibraryPage() {
 
       setNote("Media uploaded and URL generated successfully.");
       resetUploadForm();
-      await loadAssets();
+      await loadAssets(activeProjectId);
     } catch (error: any) {
       setErrorMessage(error?.message ?? "Media upload failed.");
     } finally {
@@ -253,6 +352,12 @@ export default function MediaLibraryPage() {
   async function updateAsset(asset: MediaAsset, action: "archive" | "approve") {
     setNote("");
     setErrorMessage("");
+
+    if (!canManage) {
+      setErrorMessage("You do not have permission to update media.");
+      return;
+    }
+
     setBusyId(asset.id);
 
     try {
@@ -279,7 +384,7 @@ export default function MediaLibraryPage() {
           : "Media item approved."
       );
 
-      await loadAssets();
+      await loadAssets(activeProjectId);
     } catch (error: any) {
       setErrorMessage(error?.message ?? "Failed to update media item.");
     } finally {
@@ -288,228 +393,165 @@ export default function MediaLibraryPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#EEF3FB] p-4 md:p-6">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <section className="rounded-[2rem] border-2 border-[#171717] bg-white p-5 shadow-[5px_5px_0_#171717]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-black uppercase tracking-wide text-[#FF5C1A]">
-                Core Communication
-              </p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Core Communication"
+        title="Media Library"
+        subtitle="Upload media, generate URLs, preview files and reuse them in messages."
+        actions={
+          <>
+            <LinkButton href="/messages">Message Library</LinkButton>
+            <LinkButton href="/">Dashboard</LinkButton>
+          </>
+        }
+      />
 
-              <h1 className="mt-2 text-3xl font-black text-[#171717]">
-                Media Library
-              </h1>
+      {errorMessage ? <Notice tone="danger">{errorMessage}</Notice> : null}
+      {note ? <Notice tone="success">{note}</Notice> : null}
 
-              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600">
-                Upload audio, video, image and document assets, generate public
-                URLs, preview files, and reuse them in participant messages.
-              </p>
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">
+            Organisation
+          </p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {loadingContext ? "Loading..." : context?.organisation_name ?? "—"}
+          </p>
+        </CompactCard>
+
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">Project</p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {loadingContext ? "Loading..." : context?.active_project_name ?? "—"}
+          </p>
+        </CompactCard>
+
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">
+            Generated URLs
+          </p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {assets.length}
+          </p>
+        </CompactCard>
+      </div>
+
+      <section className="grid gap-4 lg:grid-cols-[420px_1fr]">
+        <CompactCard title="Upload and generate URL">
+          <form onSubmit={handleUpload} className="space-y-3">
+            <FieldLabel label="Media title">
+              <TextInput
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Week 2 salt reduction video"
+                required
+              />
+            </FieldLabel>
+
+            <div className="grid grid-cols-2 gap-3">
+              <FieldLabel label="Media type">
+                <SelectInput
+                  value={mediaType}
+                  onChange={(event) => {
+                    setMediaType(event.target.value);
+                    setSelectedFile(null);
+
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = "";
+                    }
+                  }}
+                >
+                  {mediaTypes.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FieldLabel>
+
+              <FieldLabel label="Language">
+                <TextInput
+                  value={languageCode}
+                  onChange={(event) => setLanguageCode(event.target.value)}
+                  placeholder="en / zu / ig"
+                />
+              </FieldLabel>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Link
-  href="/"
-  className="rounded-2xl border-2 border-[#171717] bg-white px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717]"
->
-  Dashboard
-</Link>
+            <FieldLabel label="Category">
+              <TextInput
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                placeholder="hypertension, medication, salt"
+              />
+            </FieldLabel>
 
-              <Link
-                href="/messages"
-                className="rounded-2xl border-2 border-[#171717] bg-[#FFF7F2] px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717]"
-              >
-                Message Library
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-[420px_1fr]">
-          <div className="rounded-[2rem] border-2 border-[#171717] bg-white p-5 shadow-[4px_4px_0_#171717]">
-            <div>
-              <p className="text-sm font-black uppercase tracking-wide text-[#FF5C1A]">
-                Upload
-              </p>
-
-              <h2 className="mt-1 text-xl font-black text-[#171717]">
-                Upload and generate URL
-              </h2>
-
-              <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                Upload a final audio, video, image or document file. ComConnect
-                will generate a reusable URL.
-              </p>
-            </div>
-
-            <form onSubmit={handleUpload} className="mt-4 space-y-3">
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Media title
-                </label>
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="e.g. Week 2 salt reduction video"
-                  className="mt-1.5 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Media type
-                  </label>
-                  <select
-                    value={mediaType}
-                    onChange={(event) => {
-                      setMediaType(event.target.value);
-                      setSelectedFile(null);
-
-                      if (fileInputRef.current) {
-                        fileInputRef.current.value = "";
-                      }
-                    }}
-                    className="mt-1.5 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                  >
-                    {mediaTypes.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Language
-                  </label>
-                  <input
-                    value={languageCode}
-                    onChange={(event) => setLanguageCode(event.target.value)}
-                    placeholder="en / zu / ig"
-                    className="mt-1.5 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Category
-                </label>
-                <input
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
-                  placeholder="e.g. hypertension, medication, salt"
-                  className="mt-1.5 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  File
-                </label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept={acceptedFileTypes(mediaType)}
-                  onChange={(event) =>
-                    setSelectedFile(event.target.files?.[0] ?? null)
-                  }
-                  className="mt-1.5 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-[#171717] file:px-3 file:py-2 file:text-xs file:font-black file:text-white focus:border-[#FF5C1A]"
-                  required
-                />
-
-                {selectedFile ? (
-                  <p className="mt-2 text-xs font-bold text-slate-500">
-                    Selected: {selectedFile.name} ·{" "}
-                    {formatBytes(selectedFile.size)}
-                  </p>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Description
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Short note about where this media should be used."
-                  className="mt-1.5 min-h-24 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={isApproved}
-                  onChange={(event) => setIsApproved(event.target.checked)}
-                />
-                Approved for use in messages
-              </label>
-
-              {errorMessage ? (
-                <p className="rounded-2xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700">
-                  {errorMessage}
-                </p>
-              ) : null}
-
-              {note ? (
-                <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">
-                  {note}
-                </p>
-              ) : null}
-
-              <button
-                type="submit"
-                disabled={uploading}
-                className="w-full rounded-2xl border-2 border-[#171717] bg-[#FF5C1A] px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717] disabled:opacity-60"
-              >
-                {uploading ? "Uploading..." : "Upload and generate URL"}
-              </button>
-            </form>
-          </div>
-
-          <div className="rounded-[2rem] border-2 border-[#171717] bg-white p-5 shadow-[4px_4px_0_#171717]">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-black uppercase tracking-wide text-[#FF5C1A]">
-                  Stored media
-                </p>
-
-                <h2 className="mt-1 text-xl font-black text-[#171717]">
-                  Generated URLs
-                </h2>
-
-                <p className="mt-1 text-sm font-semibold text-slate-600">
-                  Preview, copy, approve, archive or reuse media in messages.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={loadAssets}
-                disabled={loading}
-                className="rounded-2xl border-2 border-[#171717] bg-white px-4 py-3 text-sm font-black text-[#171717] shadow-[3px_3px_0_#171717] disabled:opacity-60"
-              >
-                {loading ? "Refreshing..." : "Refresh"}
-              </button>
-            </div>
-
-            <div className="mb-4 grid gap-3 md:grid-cols-2">
+            <FieldLabel label="File">
               <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search title, category, language or file name"
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
+                ref={fileInputRef}
+                type="file"
+                accept={acceptedFileTypes(mediaType)}
+                onChange={(event) =>
+                  setSelectedFile(event.target.files?.[0] ?? null)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-black file:text-white focus:border-[#F26A21]"
+                required
               />
 
-              <select
+              {selectedFile ? (
+                <p className="mt-2 text-xs font-bold text-slate-500">
+                  Selected: {selectedFile.name} ·{" "}
+                  {formatBytes(selectedFile.size)}
+                </p>
+              ) : null}
+            </FieldLabel>
+
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Short note about where this media should be used."
+              className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+            />
+
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700">
+              <input
+                type="checkbox"
+                checked={isApproved}
+                onChange={(event) => setIsApproved(event.target.checked)}
+              />
+              Approved for use in messages
+            </label>
+
+            <PrimaryButton
+              type="submit"
+              disabled={uploading || !canManage || !activeProjectId}
+            >
+              {uploading ? "Uploading..." : "Upload and generate URL"}
+            </PrimaryButton>
+
+            {!canManage ? (
+              <p className="text-xs font-bold text-slate-500">
+                Your role can view media but cannot upload or approve assets.
+              </p>
+            ) : null}
+          </form>
+        </CompactCard>
+
+        <CompactCard
+          title="Generated URLs"
+          action={
+            <div className="flex flex-wrap gap-2">
+              <TextInput
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
+                className="w-48"
+              />
+
+              <SelectInput
                 value={typeFilter}
                 onChange={(event) => setTypeFilter(event.target.value)}
-                className="rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF5C1A]"
+                className="w-auto"
               >
                 <option value="">All media types</option>
                 {mediaTypes.map((item) => (
@@ -517,149 +559,141 @@ export default function MediaLibraryPage() {
                     {item.label}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
+
+              <SecondaryButton onClick={() => loadAssets(activeProjectId)}>
+                {loading ? "Refreshing..." : "Refresh"}
+              </SecondaryButton>
             </div>
+          }
+        >
+          {loading ? (
+            <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+              Loading media...
+            </p>
+          ) : filteredAssets.length === 0 ? (
+            <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+              No generated media URLs found.
+            </p>
+          ) : (
+            <div className="max-h-[760px] space-y-3 overflow-auto pr-1">
+              {filteredAssets.map((asset) => (
+                <article
+                  key={asset.id}
+                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                >
+                  <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusPill>{mediaTypeLabel(asset.media_type)}</StatusPill>
 
-            {loading ? (
-              <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
-                Loading media...
-              </p>
-            ) : filteredAssets.length === 0 ? (
-              <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
-                No media found. Upload your first audio or video file.
-              </p>
-            ) : (
-              <div className="max-h-[760px] space-y-3 overflow-auto pr-1">
-                {filteredAssets.map((asset) => (
-                  <article
-                    key={asset.id}
-                    className="rounded-[1.5rem] border-2 border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-700">
-                            {mediaTypeLabel(asset.media_type)}
-                          </span>
+                        <StatusPill
+                          tone={asset.is_approved ? "success" : "warning"}
+                        >
+                          {asset.is_approved ? "Approved" : "Pending"}
+                        </StatusPill>
 
-                          <span
-                            className={`rounded-full border px-2 py-1 text-[10px] font-black uppercase ${
-                              asset.is_approved
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : "border-orange-200 bg-orange-50 text-orange-700"
-                            }`}
-                          >
-                            {asset.is_approved ? "Approved" : "Pending"}
-                          </span>
-
-                          {asset.language_code ? (
-                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-700">
-                              {asset.language_code}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <h3 className="mt-2 text-sm font-black text-[#171717]">
-                          {asset.title}
-                        </h3>
-
-                        <p className="mt-1 text-xs font-bold text-slate-500">
-                          {asset.file_name ?? "No file name"} ·{" "}
-                          {formatBytes(asset.file_size_bytes)} ·{" "}
-                          {dt(asset.created_at)}
-                        </p>
-
-                        {asset.description ? (
-                          <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">
-                            {asset.description}
-                          </p>
+                        {asset.language_code ? (
+                          <StatusPill>{asset.language_code}</StatusPill>
                         ) : null}
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => copyUrl(asset)}
-                          className="rounded-xl border-2 border-[#171717] bg-white px-3 py-2 text-xs font-black text-[#171717]"
+                      <h3 className="mt-2 text-sm font-black text-slate-950">
+                        {asset.title}
+                      </h3>
+
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        {asset.file_name ?? "No file name"} ·{" "}
+                        {formatBytes(asset.file_size_bytes)} ·{" "}
+                        {dt(asset.created_at)}
+                      </p>
+
+                      {asset.description ? (
+                        <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">
+                          {asset.description}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <SecondaryButton onClick={() => copyUrl(asset)}>
+                        {copiedId === asset.id ? "Copied" : "Copy URL"}
+                      </SecondaryButton>
+
+                      <Link
+                        href={useInMessageLink(asset)}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+                      >
+                        Use in message
+                      </Link>
+
+                      {!asset.is_approved && canManage ? (
+                        <SecondaryButton
+                          onClick={() => updateAsset(asset, "approve")}
+                          disabled={busyId === asset.id}
                         >
-                          {copiedId === asset.id ? "Copied" : "Copy URL"}
-                        </button>
+                          Approve
+                        </SecondaryButton>
+                      ) : null}
 
-                        <Link
-                          href={useInMessageLink(asset)}
-                          className="rounded-xl border-2 border-[#171717] bg-[#FFF7F2] px-3 py-2 text-xs font-black text-[#171717]"
-                        >
-                          Use in message
-                        </Link>
-
-                        {!asset.is_approved ? (
-                          <button
-                            type="button"
-                            onClick={() => updateAsset(asset, "approve")}
-                            disabled={busyId === asset.id}
-                            className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 disabled:opacity-60"
-                          >
-                            Approve
-                          </button>
-                        ) : null}
-
+                      {canManage ? (
                         <button
                           type="button"
                           onClick={() => updateAsset(asset, "archive")}
                           disabled={busyId === asset.id}
-                          className="rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 disabled:opacity-60"
+                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
                         >
                           Archive
                         </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {asset.public_url ? (
+                    <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2">
+                      {asset.media_type === "video" ? (
+                        <video
+                          src={asset.public_url}
+                          controls
+                          className="max-h-72 w-full rounded-xl bg-black"
+                        />
+                      ) : asset.media_type === "audio" ? (
+                        <audio
+                          src={asset.public_url}
+                          controls
+                          className="w-full"
+                        />
+                      ) : asset.media_type === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={asset.public_url}
+                          alt={asset.title}
+                          className="max-h-72 w-full rounded-xl object-contain"
+                        />
+                      ) : (
+                        <a
+                          href={asset.public_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block rounded-xl bg-slate-50 px-3 py-3 text-sm font-black text-[#F26A21]"
+                        >
+                          Open document
+                        </a>
+                      )}
+
+                      <div className="mt-2 rounded-xl bg-slate-50 p-2">
+                        <p className="break-all text-[11px] font-semibold leading-5 text-slate-600">
+                          {asset.public_url}
+                        </p>
                       </div>
                     </div>
-
-                    {asset.public_url ? (
-                      <div className="mt-3 overflow-hidden rounded-2xl border-2 border-slate-200 bg-white p-2">
-                        {asset.media_type === "video" ? (
-                          <video
-                            src={asset.public_url}
-                            controls
-                            className="max-h-72 w-full rounded-xl bg-black"
-                          />
-                        ) : asset.media_type === "audio" ? (
-                          <audio
-                            src={asset.public_url}
-                            controls
-                            className="w-full"
-                          />
-                        ) : asset.media_type === "image" ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={asset.public_url}
-                            alt={asset.title}
-                            className="max-h-72 w-full rounded-xl object-contain"
-                          />
-                        ) : (
-                          <a
-                            href={asset.public_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block rounded-xl bg-slate-50 px-3 py-3 text-sm font-black text-[#FF5C1A]"
-                          >
-                            Open document
-                          </a>
-                        )}
-
-                        <div className="mt-2 rounded-xl bg-slate-50 p-2">
-                          <p className="break-all text-[11px] font-semibold leading-5 text-slate-600">
-                            {asset.public_url}
-                          </p>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-    </main>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </CompactCard>
+      </section>
+    </PageShell>
   );
 }

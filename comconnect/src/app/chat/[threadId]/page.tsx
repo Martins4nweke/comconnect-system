@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import {
+  CompactCard,
+  LinkButton,
+  Notice,
+  PageHeader,
+  PageShell,
+  PrimaryButton,
+} from "@/components/comconnect-ui/DashboardUI";
 
 type ChatPayload = Record<string, any>;
 
@@ -33,10 +41,20 @@ type ChatThread = {
   last_message_at?: string | null;
   participants?: {
     participant_code?: string | null;
-    display_name?: string | null;
     phone_number?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    metadata?: Record<string, any> | null;
   } | null;
   chat_messages?: ChatMessage[];
+};
+
+type CurrentContext = {
+  organisation_name?: string | null;
+  organisation_role?: string | null;
+  active_project_name?: string | null;
+  active_project_code?: string | null;
+  project_role?: string | null;
 };
 
 function cleanText(value: unknown) {
@@ -51,6 +69,17 @@ function formatDate(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+function participantDisplayName(thread: ChatThread | null) {
+  const participant = thread?.participants;
+
+  return (
+    participant?.metadata?.display_name ??
+    `${participant?.first_name ?? ""} ${participant?.last_name ?? ""}`.trim() ??
+    participant?.participant_code ??
+    "Participant"
+  );
 }
 
 function isParticipantMessage(message: ChatMessage) {
@@ -124,10 +153,7 @@ function getMessageText(message: ChatMessage) {
   const payload = message.payload ?? {};
 
   return cleanText(
-    payload.message_text ??
-      payload.text ??
-      message.message_text ??
-      ""
+    payload.message_text ?? payload.text ?? message.message_text ?? ""
   );
 }
 
@@ -149,7 +175,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
   if (type === "text") {
     return (
       <p className="mt-1 whitespace-pre-wrap text-sm font-bold leading-6">
-        {messageText}
+        {messageText || "—"}
       </p>
     );
   }
@@ -158,9 +184,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
     return (
       <div className="mt-2 rounded-2xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-800">
         {mediaTitle(type)} was received, but no playable media URL is available.
-        {messageText ? (
-          <p className="mt-2 whitespace-pre-wrap">{messageText}</p>
-        ) : null}
+        {messageText ? <p className="mt-2 whitespace-pre-wrap">{messageText}</p> : null}
       </div>
     );
   }
@@ -168,9 +192,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
   if (type === "audio") {
     return (
       <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <p className="mb-2 text-xs font-black uppercase text-slate-500">
-          Voice note
-        </p>
+        <p className="mb-2 text-xs font-black uppercase text-slate-500">Voice note</p>
         <audio controls src={mediaUrl} className="w-full">
           Your browser does not support audio playback.
         </audio>
@@ -186,9 +208,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
   if (type === "image") {
     return (
       <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <p className="mb-2 text-xs font-black uppercase text-slate-500">
-          Image
-        </p>
+        <p className="mb-2 text-xs font-black uppercase text-slate-500">Image</p>
         <a href={mediaUrl} target="_blank" rel="noreferrer">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -209,9 +229,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
   if (type === "video") {
     return (
       <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <p className="mb-2 text-xs font-black uppercase text-slate-500">
-          Video
-        </p>
+        <p className="mb-2 text-xs font-black uppercase text-slate-500">Video</p>
         <video controls src={mediaUrl} className="max-h-96 w-full rounded-xl">
           Your browser does not support video playback.
         </video>
@@ -226,9 +244,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
 
   return (
     <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <p className="mb-2 text-xs font-black uppercase text-slate-500">
-        File
-      </p>
+      <p className="mb-2 text-xs font-black uppercase text-slate-500">File</p>
       <a
         href={mediaUrl}
         target="_blank"
@@ -237,9 +253,7 @@ function MediaMessageContent({ message }: { message: ChatMessage }) {
       >
         Open {fileName}
       </a>
-      {mimeType ? (
-        <p className="mt-2 text-xs font-bold text-slate-500">{mimeType}</p>
-      ) : null}
+      {mimeType ? <p className="mt-2 text-xs font-bold text-slate-500">{mimeType}</p> : null}
       {messageText ? (
         <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6">
           {messageText}
@@ -253,12 +267,29 @@ export default function ChatThreadDetailPage() {
   const params = useParams();
   const threadId = String(params?.threadId ?? "");
 
+  const [context, setContext] = useState<CurrentContext | null>(null);
   const [thread, setThread] = useState<ChatThread | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState("");
+
+  async function loadContext() {
+    try {
+      const response = await fetch("/api/context/current", {
+        cache: "no-store",
+      });
+
+      const json = await response.json().catch(() => null);
+
+      if (response.ok && json?.ok) {
+        setContext(json.data as CurrentContext);
+      }
+    } catch {
+      setContext(null);
+    }
+  }
 
   async function loadThread() {
     if (!threadId || threadId === "undefined") {
@@ -272,7 +303,8 @@ export default function ChatThreadDetailPage() {
 
     try {
       const response = await fetch(
-        `/api/chat/threads?thread_id=${encodeURIComponent(threadId)}`
+        `/api/chat/threads?thread_id=${encodeURIComponent(threadId)}`,
+        { cache: "no-store" }
       );
 
       const json = await response.json();
@@ -281,14 +313,10 @@ export default function ChatThreadDetailPage() {
         throw new Error(json?.error ?? "Failed to load chat thread.");
       }
 
-      const rows = Array.isArray(json.data)
-        ? json.data
-        : json.data?.rows ?? [];
+      const rows = Array.isArray(json.data) ? json.data : json.data?.rows ?? [];
 
       const found =
-        rows.find((item: ChatThread) => item.id === threadId) ??
-        rows[0] ??
-        null;
+        rows.find((item: ChatThread) => item.id === threadId) ?? rows[0] ?? null;
 
       if (!found) {
         throw new Error("Chat thread was not found.");
@@ -345,8 +373,7 @@ export default function ChatThreadDetailPage() {
           return {
             ...current,
             chat_messages: [...(current.chat_messages ?? []), newMessage],
-            last_message_at:
-              newMessage.created_at ?? new Date().toISOString(),
+            last_message_at: newMessage.created_at ?? new Date().toISOString(),
           };
         });
       }
@@ -370,14 +397,12 @@ export default function ChatThreadDetailPage() {
   }
 
   useEffect(() => {
-    loadThread();
+    void loadContext();
+    void loadThread();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
-  const participantName =
-    thread?.participants?.display_name ||
-    thread?.participants?.participant_code ||
-    "Participant";
+  const participantName = participantDisplayName(thread);
 
   const messages = [...(thread?.chat_messages ?? [])].sort((a, b) => {
     const aTime = new Date(a.created_at ?? a.synced_at ?? 0).getTime();
@@ -387,174 +412,169 @@ export default function ChatThreadDetailPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#FFF7F2] p-4 text-slate-900">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-black uppercase tracking-wide text-[#F26A21]">
-              ComConnect
-            </p>
-            <h1 className="text-2xl font-black text-slate-950">
-              Chat conversation
-            </h1>
-            <p className="mt-1 text-sm font-semibold text-slate-600">
-              View participant text, voice notes, images, videos and send
-              replies with app push notification.
-            </p>
-          </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Chat"
+        title="Chat conversation"
+        subtitle="View participant messages and reply from the dashboard."
+        actions={
+          <>
+            <LinkButton href="/chat">Back to Chat</LinkButton>
+            <LinkButton href="/inbox">Central Inbox</LinkButton>
+            <LinkButton href="/">Dashboard</LinkButton>
+          </>
+        }
+      />
 
-          <Link
-            href="/chat"
-            className="rounded-2xl border-2 border-slate-950 bg-white px-4 py-2 text-sm font-black shadow-[2px_2px_0_#171717]"
-          >
-            Back to chat list
-          </Link>
-        </div>
+      <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">Organisation</p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {context?.organisation_name ?? "—"}
+          </p>
+        </CompactCard>
 
-        {loading ? (
-          <section className="rounded-3xl border-2 border-slate-950 bg-white p-5 font-bold shadow-[3px_3px_0_#171717]">
-            Loading chat thread...
-          </section>
-        ) : loadError ? (
-          <section className="rounded-3xl border-2 border-red-700 bg-white p-5 text-sm font-bold text-red-700 shadow-[3px_3px_0_#171717]">
-            {loadError}
-          </section>
-        ) : thread ? (
-          <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-            <section className="rounded-3xl border-2 border-slate-950 bg-white p-5 shadow-[3px_3px_0_#171717]">
-              <h2 className="text-lg font-black">Thread details</h2>
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">Project</p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {context?.active_project_name ?? "—"}
+          </p>
+        </CompactCard>
 
-              <div className="mt-4 space-y-3 text-sm">
-                <div>
-                  <p className="font-black text-slate-500">Participant</p>
-                  <p className="font-extrabold">{participantName}</p>
-                </div>
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">Project Code</p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {context?.active_project_code ?? "—"}
+          </p>
+        </CompactCard>
 
-                <div>
-                  <p className="font-black text-slate-500">
-                    Participant code
-                  </p>
-                  <p className="font-extrabold">
-                    {thread.participants?.participant_code ?? "Not recorded"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="font-black text-slate-500">Phone</p>
-                  <p className="font-extrabold">
-                    {thread.participants?.phone_number ?? "Not recorded"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="font-black text-slate-500">Subject</p>
-                  <p className="font-extrabold">
-                    {thread.subject ?? "General chat"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="font-black text-slate-500">Status</p>
-                  <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black uppercase text-emerald-700">
-                    {thread.status ?? "open"}
-                  </span>
-                </div>
-
-                <div>
-                  <p className="font-black text-slate-500">Last message</p>
-                  <p className="font-extrabold">
-                    {formatDate(thread.last_message_at)}
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-3xl border-2 border-slate-950 bg-white p-5 shadow-[3px_3px_0_#171717]">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-black">Conversation</h2>
-                  <p className="text-sm font-semibold text-slate-600">
-                    Messages between the participant and study/care team.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={loadThread}
-                  className="rounded-2xl border-2 border-slate-950 bg-white px-3 py-2 text-xs font-black shadow-[2px_2px_0_#171717]"
-                >
-                  Refresh
-                </button>
-              </div>
-
-              <div className="max-h-[520px] space-y-3 overflow-y-auto rounded-2xl bg-slate-50 p-3">
-                {messages.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-600">
-                    No messages yet. Type the first team message below.
-                  </div>
-                ) : (
-                  messages.map((message) => {
-                    const participant = isParticipantMessage(message);
-
-                    return (
-                      <div
-                        key={message.id ?? message.local_id}
-                        className={`max-w-[86%] rounded-2xl border-2 p-3 ${
-                          participant
-                            ? "mr-auto border-slate-950 bg-white"
-                            : "ml-auto border-[#F26A21] bg-[#FFF7F2]"
-                        }`}
-                      >
-                        <p className="text-xs font-black uppercase text-slate-500">
-                          {participant
-                            ? participantName
-                            : messageLabel(message)}
-                        </p>
-
-                        <MediaMessageContent message={message} />
-
-                        <p className="mt-2 text-xs font-bold text-slate-500">
-                          {formatDate(
-                            message.created_at ?? message.synced_at
-                          )}
-                        </p>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              <div className="mt-4 rounded-2xl border-2 border-slate-950 bg-white p-3">
-                <label className="text-sm font-black text-slate-700">
-                  Reply to participant
-                </label>
-
-                <textarea
-                  value={replyText}
-                  onChange={(event) => setReplyText(event.target.value)}
-                  placeholder="Type a message to send to the participant..."
-                  className="mt-2 min-h-28 w-full rounded-2xl border-2 border-slate-950 bg-white p-3 text-sm font-semibold outline-none"
-                />
-
-                {sendNote ? (
-                  <p className="mt-2 text-sm font-bold text-slate-600">
-                    {sendNote}
-                  </p>
-                ) : null}
-
-                <button
-                  type="button"
-                  onClick={sendReply}
-                  disabled={sending}
-                  className="mt-3 rounded-2xl border-2 border-slate-950 bg-[#F26A21] px-4 py-3 text-sm font-black text-slate-950 shadow-[2px_2px_0_#171717] disabled:opacity-60"
-                >
-                  {sending ? "Sending..." : "Send message"}
-                </button>
-              </div>
-            </section>
-          </div>
-        ) : null}
+        <CompactCard>
+          <p className="text-xs font-black uppercase text-slate-500">Role</p>
+          <p className="mt-1 text-sm font-black text-slate-950">
+            {context?.project_role ?? context?.organisation_role ?? "—"}
+          </p>
+        </CompactCard>
       </div>
-    </main>
+
+      {loading ? (
+        <CompactCard>
+          <p className="text-sm font-bold text-slate-600">Loading chat thread...</p>
+        </CompactCard>
+      ) : loadError ? (
+        <Notice tone="danger">{loadError}</Notice>
+      ) : thread ? (
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+          <CompactCard title="Thread details">
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-black text-slate-500">Participant</p>
+                <p className="font-extrabold">{participantName}</p>
+              </div>
+
+              <div>
+                <p className="font-black text-slate-500">Participant code</p>
+                <p className="font-extrabold">
+                  {thread.participants?.participant_code ?? "Not recorded"}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-black text-slate-500">Phone</p>
+                <p className="font-extrabold">
+                  {thread.participants?.phone_number ?? "Not recorded"}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-black text-slate-500">Subject</p>
+                <p className="font-extrabold">{thread.subject ?? "General chat"}</p>
+              </div>
+
+              <div>
+                <p className="font-black text-slate-500">Status</p>
+                <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black uppercase text-emerald-700">
+                  {thread.status ?? "open"}
+                </span>
+              </div>
+
+              <div>
+                <p className="font-black text-slate-500">Last message</p>
+                <p className="font-extrabold">{formatDate(thread.last_message_at)}</p>
+              </div>
+            </div>
+          </CompactCard>
+
+          <CompactCard
+            title="Conversation"
+            subtitle="Text, voice notes, images, videos and files."
+            action={
+              <button
+                type="button"
+                onClick={loadThread}
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700"
+              >
+                Refresh
+              </button>
+            }
+          >
+            <div className="max-h-[520px] space-y-3 overflow-y-auto rounded-2xl bg-slate-50 p-3">
+              {messages.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-600">
+                  No messages yet. Type the first team message below.
+                </div>
+              ) : (
+                messages.map((message) => {
+                  const participant = isParticipantMessage(message);
+
+                  return (
+                    <div
+                      key={message.id ?? message.local_id}
+                      className={`max-w-[86%] rounded-2xl border-2 p-3 ${
+                        participant
+                          ? "mr-auto border-slate-950 bg-white"
+                          : "ml-auto border-[#F26A21] bg-[#FFF7F2]"
+                      }`}
+                    >
+                      <p className="text-xs font-black uppercase text-slate-500">
+                        {participant ? participantName : messageLabel(message)}
+                      </p>
+
+                      <MediaMessageContent message={message} />
+
+                      <p className="mt-2 text-xs font-bold text-slate-500">
+                        {formatDate(message.created_at ?? message.synced_at)}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+              <label className="text-sm font-black text-slate-700">
+                Reply to participant
+              </label>
+
+              <textarea
+                value={replyText}
+                onChange={(event) => setReplyText(event.target.value)}
+                placeholder="Type a message to send to the participant..."
+                className="mt-2 min-h-28 w-full rounded-2xl border border-slate-200 bg-white p-3 text-sm font-semibold outline-none focus:border-[#F26A21]"
+              />
+
+              {sendNote ? (
+                <p className="mt-2 text-sm font-bold text-slate-600">{sendNote}</p>
+              ) : null}
+
+              <div className="mt-3">
+                <PrimaryButton onClick={sendReply} disabled={sending}>
+                  {sending ? "Sending..." : "Send message"}
+                </PrimaryButton>
+              </div>
+            </div>
+          </CompactCard>
+        </div>
+      ) : null}
+    </PageShell>
   );
 }

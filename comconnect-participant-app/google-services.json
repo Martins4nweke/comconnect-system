@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "630997675846",
+    "project_id": "fledgelight",
+    "storage_bucket": "fledgelight.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:630997675846:android:5b1f4918ca9d61e2f9bf47",
+        "android_client_info": {
+          "package_name": "com.comconnect.participant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXsik_xL60avNQTB82fJP4I-0j2QJ9f1Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

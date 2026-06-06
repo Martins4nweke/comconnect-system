@@ -4,6 +4,11 @@ import { ok, fail } from "@/lib/comconnect-core/api-response";
 import { validateAssignmentTarget } from "@/lib/research-care/assignment";
 import { createAuditLog } from "@/lib/comconnect-core/audit";
 import { sendParticipantPushNotification } from "@/lib/participant-app/notifications/push";
+import {
+  getScopedContext,
+  isOrganisationAdmin,
+  isProjectManager,
+} from "@/lib/comconnect-core/access-scope";
 
 type Params = { params: Promise<{ questionnaireId: string }> };
 
@@ -14,11 +19,13 @@ type ParticipantTarget = {
   participant_code?: string | null;
 };
 
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function cleanList(value: unknown) {
   if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item ?? "").trim())
-      .filter(Boolean);
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
   }
 
   if (typeof value === "string") {
@@ -31,10 +38,51 @@ function cleanList(value: unknown) {
   return [];
 }
 
-async function resolveParticipants(
-  questionnaireProjectId: string,
-  body: any
-): Promise<ParticipantTarget[]> {
+function canManageQuestionnaires(
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  const organisationRole = cleanText(context.organisation_role).toLowerCase();
+  const projectRole = cleanText(context.project_role).toLowerCase();
+
+  return (
+    isOrganisationAdmin(organisationRole) ||
+    isProjectManager(projectRole) ||
+    [
+      "project_manager",
+      "research_assistant",
+      "data_manager",
+      "clinician",
+      "nurse",
+    ].includes(projectRole)
+  );
+}
+
+function applyQuestionnaireScope(
+  query: any,
+  context: Awaited<ReturnType<typeof getScopedContext>>
+) {
+  query = query.eq("organisation_id", context.organisation_id);
+
+  if (context.active_project_id) {
+    return query.eq("project_id", context.active_project_id);
+  }
+
+  if (context.allowed_project_ids.length > 0) {
+    return query.in("project_id", context.allowed_project_ids);
+  }
+
+  return query.eq("project_id", "__no_project_access__");
+}
+
+async function resolveParticipants({
+  organisationId,
+  projectId,
+  body,
+}: {
+  organisationId: string;
+  projectId: string;
+  body: any;
+}): Promise<ParticipantTarget[]> {
   const participantIds = cleanList(body?.participant_ids);
   const participantCodes = cleanList(body?.participant_codes);
 
@@ -53,17 +101,18 @@ async function resolveParticipants(
     const { data, error } = await supabaseAdmin
       .from("participants")
       .select("id, organisation_id, project_id, participant_code")
-      .eq("project_id", questionnaireProjectId)
+      .eq("organisation_id", organisationId)
+      .eq("project_id", projectId)
       .in("id", uniqueParticipantIds);
 
-    if (error) {
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
 
     const found = data ?? [];
 
     if (found.length !== uniqueParticipantIds.length) {
-      throw new Error("One or more participant IDs were not found for this project.");
+      throw new Error(
+        "One or more participant IDs were not found for this project."
+      );
     }
 
     return found;
@@ -73,12 +122,11 @@ async function resolveParticipants(
     const { data, error } = await supabaseAdmin
       .from("participants")
       .select("id, organisation_id, project_id, participant_code")
-      .eq("project_id", questionnaireProjectId)
+      .eq("organisation_id", organisationId)
+      .eq("project_id", projectId)
       .in("participant_code", uniqueParticipantCodes);
 
-    if (error) {
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
 
     const found = data ?? [];
     const foundCodes = new Set(found.map((item) => item.participant_code));
@@ -88,7 +136,9 @@ async function resolveParticipants(
 
     if (missingCodes.length > 0) {
       throw new Error(
-        `Participant code(s) not found for this project: ${missingCodes.join(", ")}`
+        `Participant code(s) not found for this project: ${missingCodes.join(
+          ", "
+        )}`
       );
     }
 
@@ -112,10 +162,7 @@ async function sendQuestionnairePush({
     project_id: questionnaire.project_id,
     participant_id: assignment.participant_id,
     title: "New questionnaire",
-    body:
-      titleText.length > 90
-        ? `${titleText.slice(0, 90)}...`
-        : titleText,
+    body: titleText.length > 90 ? `${titleText.slice(0, 90)}...` : titleText,
     data: {
       type: "questionnaire",
       screen: "questionnaires",
@@ -127,21 +174,37 @@ async function sendQuestionnairePush({
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const { questionnaireId } = await params;
-  const body = await req.json().catch(() => null);
-
-  const { data: questionnaire, error: qError } = await supabaseAdmin
-    .from("questionnaires")
-    .select("id, organisation_id, project_id, title, description")
-    .eq("id", questionnaireId)
-    .single();
-
-  if (qError || !questionnaire) {
-    return fail("Questionnaire not found", 404);
-  }
-
   try {
-    const participants = await resolveParticipants(questionnaire.project_id, body);
+    const context = await getScopedContext(req);
+
+    if (!canManageQuestionnaires(context)) {
+      return fail("You do not have permission to assign questionnaires.", 403);
+    }
+
+    const { questionnaireId } = await params;
+    const body = await req.json().catch(() => null);
+
+    let questionnaireQuery = supabaseAdmin
+      .from("questionnaires")
+      .select("id, organisation_id, project_id, title, description")
+      .eq("id", questionnaireId);
+
+    questionnaireQuery = applyQuestionnaireScope(questionnaireQuery, context);
+
+    const { data: questionnaire, error: qError } =
+      await questionnaireQuery.maybeSingle();
+
+    if (qError) return fail(qError.message, 500);
+
+    if (!questionnaire) {
+      return fail("Questionnaire not found or not allowed.", 404);
+    }
+
+    const participants = await resolveParticipants({
+      organisationId: questionnaire.organisation_id,
+      projectId: questionnaire.project_id,
+      body,
+    });
 
     /*
       Group assignment is kept for later.
@@ -171,9 +234,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         .select("*")
         .single();
 
-      if (error) {
-        return fail(error.message, 500);
-      }
+      if (error) return fail(error.message, 500);
 
       const pushResult = {
         sent: 0,
@@ -235,12 +296,9 @@ export async function POST(req: NextRequest, { params }: Params) {
       .insert(assignmentRows)
       .select("*");
 
-    if (error) {
-      return fail(error.message, 500);
-    }
+    if (error) return fail(error.message, 500);
 
     const createdAssignments = assignments ?? [];
-
     const pushResults = [];
 
     for (const assignment of createdAssignments) {
@@ -297,6 +355,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       201
     );
   } catch (error: any) {
-    return fail(error.message ?? "Failed to assign questionnaire", 400);
+    return fail(error?.message ?? "Failed to assign questionnaire", 400);
   }
 }
