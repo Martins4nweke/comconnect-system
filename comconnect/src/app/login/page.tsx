@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 const PARTICIPANT_APP_URL =
@@ -15,8 +15,7 @@ const loginHighlights = [
   "Delivery logs, replies and audit-ready activity",
 ];
 
-export default function LoginPage() {
-  const router = useRouter();
+function LoginPageContent() {  const router = useRouter();
   const searchParams = useSearchParams();
 
   const redirectedFrom = searchParams.get("redirectedFrom") || "/dashboard";
@@ -247,5 +246,23 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[#EAF2F8] px-4 py-10 text-[#06324A]">
+          <div className="mx-auto max-w-xl rounded-[2rem] bg-white p-8 text-center shadow-xl">
+            <p className="text-sm font-black text-[#536271]">
+              Loading login...
+            </p>
+          </div>
+        </main>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }
