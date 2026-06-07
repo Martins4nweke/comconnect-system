@@ -8,7 +8,8 @@ function isPublicApiRoute(pathname: string) {
     pathname === "/api/communication/fallback/process" ||
     pathname === "/api/communication/health" ||
     pathname.startsWith("/api/webhooks/") ||
-    pathname.startsWith("/api/communication/africastalking/")
+    pathname.startsWith("/api/communication/africastalking/") ||
+    pathname.startsWith("/api/external/")
   );
 }
 
