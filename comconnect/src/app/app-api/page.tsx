@@ -29,13 +29,13 @@ const apiModules = [
   {
     title: "Participant API",
     description:
-      "Register participants, manage participant identifiers, and connect participant records to organisation projects.",
-    status: "Planned",
+      "Read and create participants, manage participant identifiers, and connect participant records to organisation projects.",
+    status: "Partly ready",
   },
   {
     title: "Message API",
     description:
-      "Create and send approved text, audio, video and education messages through ComConnect workflows.",
+      "Queue approved text, audio, video and education messages through ComConnect workflows.",
     status: "Planned",
   },
   {
@@ -53,24 +53,115 @@ const apiModules = [
   {
     title: "Replies API",
     description:
-      "Receive and review participant replies, help requests and structured responses from supported channels.",
+      "Read participant replies, help requests and structured responses from supported channels.",
     status: "Planned",
   },
   {
     title: "Webhook API",
     description:
-      "Send delivery, reply, failed-message and billing events to approved organisation webhook endpoints.",
+      "Manage and test delivery, reply, failed-message and billing events sent to approved webhook endpoints.",
     status: "Planned",
+  },
+];
+
+const externalEndpoints = [
+  {
+    method: "GET",
+    path: "/api/external/me",
+    scope: "participants:read",
+    status: "Ready",
+    purpose: "Test whether an external API key is valid.",
+    safety:
+      "Read-only authentication test. Does not touch participants, messages, wallet or providers.",
+  },
+  {
+    method: "GET",
+    path: "/api/external/participants",
+    scope: "participants:read",
+    status: "Ready",
+    purpose: "Read participants within the API key organisation/project scope.",
+    safety:
+      "Read-only. Supports limit, offset, search and project scoping. Does not send messages.",
+  },
+  {
+    method: "POST",
+    path: "/api/external/participants",
+    scope: "participants:write",
+    status: "Planned",
+    purpose: "Create a participant in an authorised organisation/project.",
+    safety:
+      "Will create participant records only after table columns and project scoping are confirmed.",
+  },
+  {
+    method: "POST",
+    path: "/api/external/messages/send",
+    scope: "messages:write",
+    status: "Planned",
+    purpose: "Queue or send a message through ComConnect workflow.",
+    safety:
+      "Must not bypass billing. Should queue through existing scheduler/send-due flow, not directly call providers.",
+  },
+  {
+    method: "POST",
+    path: "/api/external/schedules",
+    scope: "schedules:write",
+    status: "Planned",
+    purpose: "Create scheduled communication for authorised participants.",
+    safety:
+      "Will create schedule rows only. Existing scheduler and billing guard should handle actual sending.",
+  },
+  {
+    method: "GET",
+    path: "/api/external/delivery-logs",
+    scope: "delivery_logs:read",
+    status: "Planned",
+    purpose: "Read delivery outcomes for app, push, SMS, WhatsApp and voice.",
+    safety:
+      "Read-only. Should be organisation/project scoped.",
+  },
+  {
+    method: "GET",
+    path: "/api/external/replies",
+    scope: "replies:read",
+    status: "Planned",
+    purpose: "Read participant replies, HELP requests and structured responses.",
+    safety:
+      "Read-only. Should be organisation/project scoped.",
+  },
+  {
+    method: "POST",
+    path: "/api/external/webhooks/test",
+    scope: "webhooks:write",
+    status: "Planned",
+    purpose: "Send a harmless test event to a configured webhook endpoint.",
+    safety:
+      "Sends only a test webhook payload. Does not send participant messages or deduct wallet.",
   },
 ];
 
 const rules = [
   "API access is organisation-scoped and may also be project-scoped.",
-  "API keys will be controlled by plan, role and permission.",
-  "API keys must never bypass billing rules.",
+  "API keys are controlled by plan, role, permission and key scope.",
+  "API keys must never bypass subscription, wallet or paid-channel billing rules.",
   "SMS, voice calls and WhatsApp require an active wallet and enabled channel.",
   "Subscription gives access to ComConnect dashboard and Participant app.",
   "Trial access supports platform and Participant app testing only.",
+  "External message sending should enter the existing queue/scheduler flow, not call providers directly.",
+];
+
+const examples = [
+  {
+    title: "Authentication header",
+    code: `Authorization: Bearer cc_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`,
+  },
+  {
+    title: "Test API key",
+    code: `GET /api/external/me`,
+  },
+  {
+    title: "Read participants",
+    code: `GET /api/external/participants?limit=10&offset=0`,
+  },
 ];
 
 function AccessMessage({
@@ -104,6 +195,26 @@ function AccessMessage({
       ) : null}
     </div>
   );
+}
+
+function statusClass(status: string) {
+  if (status.toLowerCase() === "ready") {
+    return "rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700";
+  }
+
+  if (status.toLowerCase().includes("partly")) {
+    return "rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700";
+  }
+
+  return "rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700";
+}
+
+function methodClass(method: string) {
+  if (method === "GET") {
+    return "rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700";
+  }
+
+  return "rounded-full bg-[#EAF2F8] px-3 py-1 text-xs font-black text-[#0A5278]";
 }
 
 export default function AppApiPage() {
@@ -206,12 +317,11 @@ export default function AppApiPage() {
           <div className="mt-4 grid gap-5 lg:grid-cols-[1.4fr_0.6fr] lg:items-end">
             <div>
               <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                ComConnect API Console
+                ComConnect External API Console
               </h1>
               <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-white/80">
-                Prepare secure organisation API access for participant
-                workflows, messages, schedules, delivery logs, replies and
-                webhooks.
+                Manage secure organisation API access for participants,
+                messages, schedules, delivery logs, replies and webhook testing.
               </p>
             </div>
 
@@ -220,12 +330,12 @@ export default function AppApiPage() {
                 Current stage
               </p>
               <p className="mt-2 text-xl font-black text-white">
-                Overview and access console
+                Authentication and participant read ready
               </p>
               <p className="mt-2 text-xs font-semibold leading-5 text-white/70">
-                API keys, webhooks and usage pages are connected. API sending
-                will be added only after billing, wallet and permission checks
-                are confirmed.
+                API key testing and participant read access are working. Sending
+                endpoints will be added only through the existing guarded
+                ComConnect workflow.
               </p>
             </div>
           </div>
@@ -241,7 +351,7 @@ export default function AppApiPage() {
                 <h2 className="text-lg font-black text-[#06324A]">
                   {module.title}
                 </h2>
-                <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">
+                <span className={statusClass(module.status)}>
                   {module.status}
                 </span>
               </div>
@@ -250,6 +360,74 @@ export default function AppApiPage() {
               </p>
             </div>
           ))}
+        </section>
+
+        <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                External endpoints
+              </p>
+              <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+                API reference and implementation status
+              </h2>
+            </div>
+
+            <Link
+              href="/api-keys"
+              className="rounded-full bg-[#0A5278] px-5 py-3 text-sm font-black text-white hover:bg-[#063E5E]"
+            >
+              Manage API keys
+            </Link>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[980px] border-separate border-spacing-y-2 text-left text-sm">
+              <thead>
+                <tr className="text-xs font-black uppercase tracking-[0.16em] text-[#536271]">
+                  <th className="px-3 py-2">Method</th>
+                  <th className="px-3 py-2">Endpoint</th>
+                  <th className="px-3 py-2">Scope</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Purpose</th>
+                  <th className="px-3 py-2">Safety rule</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {externalEndpoints.map((endpoint) => (
+                  <tr key={`${endpoint.method}-${endpoint.path}`}>
+                    <td className="rounded-l-2xl border-y border-l border-[#C9D8E4] bg-white px-3 py-3">
+                      <span className={methodClass(endpoint.method)}>
+                        {endpoint.method}
+                      </span>
+                    </td>
+                    <td className="border-y border-[#C9D8E4] bg-white px-3 py-3">
+                      <code className="text-xs font-black text-[#06324A]">
+                        {endpoint.path}
+                      </code>
+                    </td>
+                    <td className="border-y border-[#C9D8E4] bg-white px-3 py-3">
+                      <code className="text-xs font-bold text-[#536271]">
+                        {endpoint.scope}
+                      </code>
+                    </td>
+                    <td className="border-y border-[#C9D8E4] bg-white px-3 py-3">
+                      <span className={statusClass(endpoint.status)}>
+                        {endpoint.status}
+                      </span>
+                    </td>
+                    <td className="border-y border-[#C9D8E4] bg-white px-3 py-3 font-semibold leading-6 text-[#536271]">
+                      {endpoint.purpose}
+                    </td>
+                    <td className="rounded-r-2xl border-y border-r border-[#C9D8E4] bg-white px-3 py-3 font-semibold leading-6 text-[#536271]">
+                      {endpoint.safety}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
@@ -275,13 +453,29 @@ export default function AppApiPage() {
 
           <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
-              API management pages
+              API examples
             </p>
             <h2 className="mt-3 text-2xl font-black text-[#06324A]">
-              Build order
+              How to call the API
             </h2>
 
             <div className="mt-5 space-y-3">
+              {examples.map((example) => (
+                <div
+                  key={example.title}
+                  className="rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4"
+                >
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0A5278]">
+                    {example.title}
+                  </p>
+                  <code className="mt-2 block overflow-x-auto rounded-xl bg-white px-3 py-2 text-xs font-black text-[#06324A]">
+                    {example.code}
+                  </code>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-3">
               <Link
                 href="/api-keys"
                 className="block rounded-2xl border border-[#C9D8E4] bg-white px-4 py-3 text-sm font-black text-[#06324A] hover:bg-[#EAF2F8]"
@@ -301,13 +495,20 @@ export default function AppApiPage() {
                 API Usage
               </Link>
             </div>
-
-            <p className="mt-5 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] px-4 py-3 text-xs font-bold leading-5 text-[#536271]">
-              This page does not send messages, deduct wallet balance, run the
-              scheduler, or call external providers. It only explains and links
-              to the API management pages.
-            </p>
           </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-orange-200 bg-orange-50 p-6 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">
+            Implementation warning
+          </p>
+          <p className="mt-3 text-sm font-bold leading-6 text-orange-800">
+            Endpoints marked Planned are documented for build direction only.
+            They should not be advertised as active until their backend routes,
+            scoping checks, usage logging and billing safeguards are tested.
+            Message sending must enter the existing ComConnect queue/scheduler
+            flow and must not bypass wallet deduction or provider delivery logs.
+          </p>
         </section>
       </div>
     );
