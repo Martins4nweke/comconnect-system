@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { queuePushForParticipant } from "@/lib/communication/fallback-engine";
 import { personaliseMessage } from "@/lib/communication/personalise-message";
+import { requirePaidChannelAccess } from "@/lib/billing/guards";
+import { deductWalletBalance } from "@/lib/billing/wallet";
 import { sendPushNotification } from "./push-provider";
 import { sendSms } from "./sms-provider";
 import { startVoiceCall } from "./voice-provider";
@@ -113,6 +115,39 @@ async function recordDeliveryEvent(payload: Record<string, any>) {
   }
 }
 
+async function blockPaidChannel(payload: {
+  organisation_id: string;
+  project_id?: string | null;
+  participant_id?: string | null;
+  phone_number?: string | null;
+  channel: "sms" | "voice" | "whatsapp";
+  source_type?: string | null;
+  source_id?: string | null;
+  error: string;
+}) {
+  await recordDeliveryEvent({
+    organisation_id: payload.organisation_id,
+    project_id: payload.project_id ?? null,
+    participant_id: payload.participant_id ?? null,
+    phone_number: payload.phone_number ?? null,
+    channel: payload.channel,
+    source_type: payload.source_type ?? null,
+    source_id: payload.source_id ?? null,
+    provider: "billing_guard",
+    provider_status: "blocked",
+    status: "failed",
+    error_message: payload.error,
+    failure_reason: payload.error,
+    request_payload: {
+      blocked_by: "billing_guard",
+      channel: payload.channel,
+    },
+    response_payload: {
+      error: payload.error,
+    },
+  });
+}
+
 async function markSchedule(
   scheduleId: string,
   patch: Record<string, unknown>
@@ -187,105 +222,106 @@ export async function processDueSchedules(limit = 100) {
     const body = personaliseMessage(rawBody, participant);
 
     try {
-     if (finalChannel === "app") {
-  const nowIso = new Date().toISOString();
+      if (finalChannel === "app") {
+        const nowIso = new Date().toISOString();
 
-  const { data: appMessage, error: appMessageError } = await supabaseAdmin
-    .from("app_messages")
-    .insert({
-      organisation_id: item.organisation_id,
-      project_id: item.project_id,
-      participant_id: item.participant_id,
+        const { data: appMessage, error: appMessageError } =
+          await supabaseAdmin
+            .from("app_messages")
+            .insert({
+              organisation_id: item.organisation_id,
+              project_id: item.project_id,
+              participant_id: item.participant_id,
 
-      title,
-      body,
+              title,
+              body,
 
-      message_code: item.message_code ?? null,
-      status: "published",
-      available_at: nowIso,
+              message_code: item.message_code ?? null,
+              status: "published",
+              available_at: nowIso,
 
-      source_type: "communication_schedules",
-      source_id: item.id,
+              source_type: "communication_schedules",
+              source_id: item.id,
 
-      metadata: {
-        type: "scheduled_message",
-        source_type: "communication_schedules",
-        source_id: item.id,
-        message_code: item.message_code,
-        delivery_mode: item.delivery_mode,
-        allowed_channels: item.allowed_channels,
-        created_from: "send_due_app_channel",
-      },
-    })
-    .select("*")
-    .single();
+              metadata: {
+                type: "scheduled_message",
+                source_type: "communication_schedules",
+                source_id: item.id,
+                message_code: item.message_code,
+                delivery_mode: item.delivery_mode,
+                allowed_channels: item.allowed_channels,
+                created_from: "send_due_app_channel",
+              },
+            })
+            .select("*")
+            .single();
 
-  if (appMessageError) {
-    throw new Error(appMessageError.message);
-  }
+        if (appMessageError) {
+          throw new Error(appMessageError.message);
+        }
 
-  await recordDeliveryEvent({
-    organisation_id: item.organisation_id,
-    project_id: item.project_id,
-    participant_id: item.participant_id,
-    phone_number: participant?.phone_number ?? null,
-    channel: "app",
-    source_type: "communication_schedules",
-    source_id: item.id,
-    provider: "app_inbox",
-    provider_message_id: appMessage?.id ?? null,
-    provider_status: "published_to_app_inbox",
-    status: "delivered",
-    error_message: null,
-    failure_reason: null,
-    request_payload: {
-      title,
-      body,
-      message_code: item.message_code,
-    },
-    response_payload: {
-      app_message_id: appMessage?.id ?? null,
-      available_at: nowIso,
-    },
-  });
+        await recordDeliveryEvent({
+          organisation_id: item.organisation_id,
+          project_id: item.project_id,
+          participant_id: item.participant_id,
+          phone_number: participant?.phone_number ?? null,
+          channel: "app",
+          source_type: "communication_schedules",
+          source_id: item.id,
+          provider: "app_inbox",
+          provider_message_id: appMessage?.id ?? null,
+          provider_status: "published_to_app_inbox",
+          status: "delivered",
+          error_message: null,
+          failure_reason: null,
+          request_payload: {
+            title,
+            body,
+            message_code: item.message_code,
+          },
+          response_payload: {
+            app_message_id: appMessage?.id ?? null,
+            available_at: nowIso,
+          },
+        });
 
-  await queuePushForParticipant({
-    project_id: item.project_id,
-    participant_id: item.participant_id,
-    title,
-    body,
-    scheduled_for: nowIso,
-    data: {
-      type: "scheduled_message",
-      source_type: "communication_schedules",
-      source_id: item.id,
-      app_message_id: appMessage?.id ?? null,
-      message_code: item.message_code,
-      delivery_mode: item.delivery_mode,
-      allowed_channels: item.allowed_channels,
-    },
-  });
+        await queuePushForParticipant({
+          project_id: item.project_id,
+          participant_id: item.participant_id,
+          title,
+          body,
+          scheduled_for: nowIso,
+          data: {
+            type: "scheduled_message",
+            source_type: "communication_schedules",
+            source_id: item.id,
+            app_message_id: appMessage?.id ?? null,
+            message_code: item.message_code,
+            delivery_mode: item.delivery_mode,
+            allowed_channels: item.allowed_channels,
+          },
+        });
 
-  await markSchedule(item.id, {
-    status: "queued",
-    resolved_channel: "app",
-    provider: "app_inbox",
-    processed_at: nowIso,
-    attempt_count: (item.attempt_count ?? 0) + 1,
-    last_error: null,
-  });
+        await markSchedule(item.id, {
+          status: "queued",
+          resolved_channel: "app",
+          provider: "app_inbox",
+          processed_at: nowIso,
+          attempt_count: (item.attempt_count ?? 0) + 1,
+          last_error: null,
+        });
 
-  results.push({
-    id: item.id,
-    participant_code: item.participant_code,
-    channel: "app",
-    status: "delivered_to_app_inbox",
-    app_message_id: appMessage?.id ?? null,
-    push_alert: "queued_if_token_exists",
-  });
+        results.push({
+          id: item.id,
+          participant_code: item.participant_code,
+          channel: "app",
+          status: "delivered_to_app_inbox",
+          app_message_id: appMessage?.id ?? null,
+          push_alert: "queued_if_token_exists",
+        });
 
-  continue;
-}
+        continue;
+      }
 
       if (finalChannel === "sms") {
         if (!participant.phone_number) {
@@ -296,11 +332,33 @@ export async function processDueSchedules(limit = 100) {
         }
 
         if ((process.env.SMS_PROVIDER || "disabled") === "disabled") {
-          results.push(
-            await maybeCreateManualFollowUp(item, "SMS provider disabled")
-          );
-          continue;
-        }
+  await recordDeliveryEvent({
+    organisation_id: item.organisation_id,
+    project_id: item.project_id,
+    participant_id: item.participant_id,
+    phone_number: participant.phone_number,
+    channel: "sms",
+    source_type: "communication_schedules",
+    source_id: item.id,
+    provider: "disabled",
+    provider_status: "provider_disabled",
+    status: "failed",
+    error_message: "SMS provider disabled",
+    failure_reason: "SMS provider disabled",
+    request_payload: {
+      phone_number: participant.phone_number,
+      message: body,
+    },
+    response_payload: {
+      blocked_before_sms_log: true,
+    },
+  });
+
+  results.push(
+    await maybeCreateManualFollowUp(item, "SMS provider disabled")
+  );
+  continue;
+}
 
         const { error: smsError } = await supabaseAdmin.from("sms_logs").insert({
           organisation_id: item.organisation_id,
@@ -351,35 +409,106 @@ export async function processDueSchedules(limit = 100) {
           continue;
         }
 
-        if ((process.env.VOICE_PROVIDER || "disabled") === "disabled") {
-          results.push(
-            await maybeCreateManualFollowUp(item, "Voice provider disabled")
-          );
-          continue;
-        }
+     if ((process.env.VOICE_PROVIDER || "disabled") === "disabled") {
+  await recordDeliveryEvent({
+    organisation_id: item.organisation_id,
+    project_id: item.project_id,
+    participant_id: item.participant_id,
+    phone_number: participant.phone_number,
+    channel: "voice",
+    source_type: "communication_schedules",
+    source_id: item.id,
+    provider: "disabled",
+    provider_status: "provider_disabled",
+    status: "failed",
+    error_message: "Voice provider disabled",
+    failure_reason: "Voice provider disabled",
+    request_payload: {
+      phone_number: participant.phone_number,
+      reason: title,
+      message: body,
+    },
+    response_payload: {
+      blocked_before_voice_task: true,
+    },
+  });
 
-        const { error: voiceError } = await supabaseAdmin
-          .from("voice_call_tasks")
-          .insert({
+  results.push(
+    await maybeCreateManualFollowUp(item, "Voice provider disabled")
+  );
+  continue;
+}
+
+        const billing = await requirePaidChannelAccess({
+          organisationId: item.organisation_id,
+          channel: "voice",
+          estimatedCost: 1,
+        });
+
+        if (!billing.ok) {
+          await blockPaidChannel({
             organisation_id: item.organisation_id,
             project_id: item.project_id,
             participant_id: item.participant_id,
             phone_number: participant.phone_number,
-            reason: title,
-            priority: item.priority ?? "normal",
-            status: "pending",
-            scheduled_for: new Date().toISOString(),
-            metadata: {
-              source_type: "communication_schedules",
-              source_id: item.id,
-              message_code: item.message_code,
-              message: body,
-              delivery_mode: item.delivery_mode,
-              allowed_channels: item.allowed_channels,
-            },
+            channel: "voice",
+            source_type: "communication_schedules",
+            source_id: item.id,
+            error: billing.error,
           });
 
-        if (voiceError) throw new Error(voiceError.message);
+          results.push(await maybeCreateManualFollowUp(item, billing.error));
+          continue;
+        }
+
+        const { data: voiceTask, error: voiceError } = await supabaseAdmin
+  .from("voice_call_tasks")
+  .insert({
+    organisation_id: item.organisation_id,
+    project_id: item.project_id,
+    participant_id: item.participant_id,
+    phone_number: participant.phone_number,
+    reason: title,
+    priority: item.priority ?? "normal",
+    status: "pending",
+    scheduled_for: new Date().toISOString(),
+    metadata: {
+      source_type: "communication_schedules",
+      source_id: item.id,
+      message_code: item.message_code,
+      message: body,
+      delivery_mode: item.delivery_mode,
+      allowed_channels: item.allowed_channels,
+    },
+  })
+  .select("*")
+  .single();
+
+if (voiceError) throw new Error(voiceError.message);
+
+await recordDeliveryEvent({
+  organisation_id: item.organisation_id,
+  project_id: item.project_id,
+  participant_id: item.participant_id,
+  phone_number: participant.phone_number,
+  channel: "voice",
+  source_type: "communication_schedules",
+  source_id: item.id,
+  provider: process.env.VOICE_PROVIDER || "africastalking",
+  provider_message_id: voiceTask?.id ?? null,
+  provider_status: "queued_for_voice_call",
+  status: "queued",
+  error_message: null,
+  failure_reason: null,
+  request_payload: {
+    phone_number: participant.phone_number,
+    reason: title,
+    message: body,
+  },
+  response_payload: {
+    voice_call_task_id: voiceTask?.id ?? null,
+  },
+});
 
         await markSchedule(item.id, {
           status: "queued",
@@ -566,6 +695,28 @@ async function maybeCreateSmsFallback(item: any, reason: string) {
     return null;
   }
 
+  const billing = await requirePaidChannelAccess({
+    organisationId: item.organisation_id,
+    channel: "sms",
+    estimatedCost: 1,
+  });
+
+  if (!billing.ok) {
+    await blockPaidChannel({
+      organisation_id: item.organisation_id,
+      project_id: item.project_id,
+      participant_id: item.participant_id,
+      phone_number: item.participants?.phone_number ?? null,
+      channel: "sms",
+      source_type: "push_notification_queue",
+      source_id: item.id,
+      error: billing.error,
+    });
+
+    console.warn("SMS fallback blocked by billing guard:", billing.error);
+    return null;
+  }
+
   const participant = item.participants;
 
   const message = personaliseMessage(
@@ -633,6 +784,41 @@ export async function processPendingSms(limit = 100) {
     const participant = item.participants;
     const message = personaliseMessage(item.message, participant);
 
+    const billing = await requirePaidChannelAccess({
+      organisationId: item.organisation_id,
+      channel: "sms",
+      estimatedCost: 1,
+    });
+
+    if (!billing.ok) {
+      await supabaseAdmin
+        .from("sms_logs")
+        .update({
+          status: "failed",
+          error_message: billing.error,
+        })
+        .eq("id", item.id);
+
+      await blockPaidChannel({
+        organisation_id: item.organisation_id,
+        project_id: item.project_id,
+        participant_id: item.participant_id,
+        phone_number: item.phone_number,
+        channel: "sms",
+        source_type: "sms_logs",
+        source_id: item.id,
+        error: billing.error,
+      });
+
+      results.push({
+        id: item.id,
+        status: "failed",
+        error: billing.error,
+      });
+
+      continue;
+    }
+
     const result = await sendSms({
       to: item.phone_number,
       message,
@@ -671,6 +857,29 @@ export async function processPendingSms(limit = 100) {
       response_payload: result.response ?? {},
     });
 
+if (result.ok) {
+  const deduction = await deductWalletBalance({
+    organisationId: item.organisation_id,
+    projectId: item.project_id,
+    channel: "sms",
+    reference: extractProviderMessageId(result) ?? item.id,
+    metadata: {
+      source_type: "sms_logs",
+      source_id: item.id,
+      participant_id: item.participant_id,
+      phone_number: item.phone_number,
+      provider: result.provider,
+      provider_message_id: extractProviderMessageId(result),
+      provider_cost: extractProviderCost(result),
+      provider_status: extractProviderStatus(result),
+    },
+  });
+
+  if (!deduction.ok) {
+    console.warn("SMS wallet deduction failed:", deduction.error);
+  }
+}
+
     if (!result.ok && canFallbackToVoice(item)) {
       await maybeCreateVoiceFallback(item, result.error ?? "SMS failed");
     }
@@ -689,6 +898,28 @@ async function maybeCreateVoiceFallback(item: any, reason: string) {
   if (!item.phone_number) return null;
 
   if ((process.env.VOICE_PROVIDER || "disabled") === "disabled") {
+    return null;
+  }
+
+  const billing = await requirePaidChannelAccess({
+    organisationId: item.organisation_id,
+    channel: "voice",
+    estimatedCost: 1,
+  });
+
+  if (!billing.ok) {
+    await blockPaidChannel({
+      organisation_id: item.organisation_id,
+      project_id: item.project_id,
+      participant_id: item.participant_id,
+      phone_number: item.phone_number,
+      channel: "voice",
+      source_type: "sms_logs",
+      source_id: item.id,
+      error: billing.error,
+    });
+
+    console.warn("Voice fallback blocked by billing guard:", billing.error);
     return null;
   }
 
@@ -751,6 +982,46 @@ export async function processPendingVoiceTasks(limit = 50) {
       participant
     );
 
+    const billing = await requirePaidChannelAccess({
+      organisationId: item.organisation_id,
+      channel: "voice",
+      estimatedCost: 1,
+    });
+
+    if (!billing.ok) {
+      await supabaseAdmin
+        .from("voice_call_tasks")
+        .update({
+          status: "failed",
+          metadata: {
+            ...(item.metadata ?? {}),
+            provider: "billing_guard",
+            provider_error: billing.error,
+            provider_status_note: "Blocked by billing guard before provider call.",
+          },
+        })
+        .eq("id", item.id);
+
+      await blockPaidChannel({
+        organisation_id: item.organisation_id,
+        project_id: item.project_id,
+        participant_id: item.participant_id,
+        phone_number: item.phone_number,
+        channel: "voice",
+        source_type: "voice_call_tasks",
+        source_id: item.id,
+        error: billing.error,
+      });
+
+      results.push({
+        id: item.id,
+        status: "failed",
+        error: billing.error,
+      });
+
+      continue;
+    }
+
     const result = await startVoiceCall({
       to: item.phone_number,
       reason: item.reason,
@@ -766,13 +1037,14 @@ export async function processPendingVoiceTasks(limit = 50) {
           ...(item.metadata ?? {}),
           personalised_message: message,
           provider: result.provider,
-         provider_message_id: extractProviderMessageId(result),
-provider_bulk_id: "provider_bulk_id" in result ? result.provider_bulk_id ?? null : null,
-provider_response: result.response ?? {},
-provider_error: result.error ?? null,
-provider_status_note: result.ok
-  ? "Provider accepted request. Final delivery status will come from webhook."
-  : null,
+          provider_message_id: extractProviderMessageId(result),
+          provider_bulk_id:
+            "provider_bulk_id" in result ? result.provider_bulk_id ?? null : null,
+          provider_response: result.response ?? {},
+          provider_error: result.error ?? null,
+          provider_status_note: result.ok
+            ? "Provider accepted request. Final delivery status will come from webhook."
+            : null,
         },
       })
       .eq("id", item.id);
@@ -798,6 +1070,28 @@ provider_status_note: result.ok
       },
       response_payload: result.response ?? {},
     });
+
+    if (result.ok) {
+      const deduction = await deductWalletBalance({
+        organisationId: item.organisation_id,
+        projectId: item.project_id,
+        channel: "voice",
+        reference: extractProviderMessageId(result) ?? item.id,
+        metadata: {
+          source_type: "voice_call_tasks",
+          source_id: item.id,
+          participant_id: item.participant_id,
+          phone_number: item.phone_number,
+          provider: result.provider,
+          provider_message_id: extractProviderMessageId(result),
+          provider_status: extractProviderStatus(result),
+        },
+      });
+
+      if (!deduction.ok) {
+        console.warn("Voice wallet deduction failed:", deduction.error);
+      }
+    }
 
     results.push({
       id: item.id,

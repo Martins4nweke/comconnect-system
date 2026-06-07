@@ -2,26 +2,25 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type PaidChannel = "sms" | "voice" | "whatsapp";
 
-type BillingGuardResult =
-  | {
-      ok: true;
-      organisation_id: string;
-      subscription: any;
-      wallet: any;
-      balance: number;
-    }
-  | {
-      ok: false;
-      status: number;
-      error: string;
-      reason:
-        | "missing_organisation"
-        | "no_subscription"
-        | "subscription_inactive"
-        | "wallet_inactive"
-        | "wallet_empty"
-        | "channel_disabled";
-    };
+export type BillingGuardReason =
+  | "allowed"
+  | "missing_organisation"
+  | "no_subscription"
+  | "subscription_inactive"
+  | "wallet_inactive"
+  | "wallet_empty"
+  | "channel_disabled";
+
+export type BillingGuardResult = {
+  ok: boolean;
+  status: number;
+  error: string;
+  reason: BillingGuardReason;
+  organisation_id?: string;
+  subscription?: any;
+  wallet?: any;
+  balance: number;
+};
 
 function isTrialActive(subscription: any) {
   if (!subscription) return false;
@@ -81,11 +80,13 @@ export async function requirePlatformAccess(
       status: 400,
       error: "Organisation is required.",
       reason: "missing_organisation",
+      balance: 0,
     };
   }
 
   const subscription = await getLatestSubscription(organisationId);
   const wallet = await getWallet(organisationId);
+  const balance = Number(wallet?.balance ?? 0);
 
   if (!subscription) {
     return {
@@ -94,6 +95,10 @@ export async function requirePlatformAccess(
       error:
         "No active trial or subscription found. Please upload payment receipt or contact support.",
       reason: "no_subscription",
+      organisation_id: organisationId,
+      subscription,
+      wallet,
+      balance,
     };
   }
 
@@ -104,15 +109,22 @@ export async function requirePlatformAccess(
       error:
         "Your trial or subscription is not active. Please renew your subscription to continue using ComConnect.",
       reason: "subscription_inactive",
+      organisation_id: organisationId,
+      subscription,
+      wallet,
+      balance,
     };
   }
 
   return {
     ok: true,
+    status: 200,
+    error: "",
+    reason: "allowed",
     organisation_id: organisationId,
     subscription,
     wallet,
-    balance: Number(wallet?.balance ?? 0),
+    balance,
   };
 }
 
@@ -136,6 +148,10 @@ export async function requirePaidChannelAccess(params: {
       error:
         "SMS, voice calls and WhatsApp require an active funded wallet. Your subscription only covers ComConnect and the Participant app.",
       reason: "wallet_inactive",
+      organisation_id: platform.organisation_id,
+      subscription: platform.subscription,
+      wallet,
+      balance: Number(wallet?.balance ?? 0),
     };
   }
 
@@ -149,6 +165,10 @@ export async function requirePaidChannelAccess(params: {
       error:
         "Wallet balance is empty. Please top up your wallet before using SMS, voice calls or WhatsApp.",
       reason: "wallet_empty",
+      organisation_id: platform.organisation_id,
+      subscription: platform.subscription,
+      wallet,
+      balance: 0,
     };
   }
 
@@ -159,6 +179,10 @@ export async function requirePaidChannelAccess(params: {
       error:
         "Wallet balance is not enough for this paid-channel action. Please top up your wallet.",
       reason: "wallet_empty",
+      organisation_id: platform.organisation_id,
+      subscription: platform.subscription,
+      wallet,
+      balance,
     };
   }
 
@@ -175,11 +199,18 @@ export async function requirePaidChannelAccess(params: {
       status: 403,
       error: `${params.channel.toUpperCase()} is not enabled for this organisation. Please contact support or submit a wallet top-up receipt for approval.`,
       reason: "channel_disabled",
+      organisation_id: platform.organisation_id,
+      subscription: platform.subscription,
+      wallet,
+      balance,
     };
   }
 
   return {
     ok: true,
+    status: 200,
+    error: "",
+    reason: "allowed",
     organisation_id: platform.organisation_id,
     subscription: platform.subscription,
     wallet,
