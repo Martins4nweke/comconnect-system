@@ -6,6 +6,7 @@ export type NavigationItem = {
   description?: string;
   permission: Permission;
   tag?: string;
+  superadminOnly?: boolean;
 };
 
 export type NavigationGroup = {
@@ -220,9 +221,20 @@ export const sidebarNavigation: NavigationGroup[] = [
       {
         title: "Billing Review",
         href: "/admin/billing-review",
-        description: "Superadmin receipt review, plan activation and wallet approval.",
+        description:
+          "Superadmin receipt review, plan activation and wallet approval.",
         permission: "billing:manage",
         tag: "Admin",
+        superadminOnly: true,
+      },
+      {
+        title: "Billing Settings",
+        href: "/admin/billing-settings",
+        description:
+          "Configure SMS, voice and WhatsApp wallet deduction prices.",
+        permission: "billing:manage",
+        tag: "Admin",
+        superadminOnly: true,
       },
       {
         title: "Projects",
@@ -264,7 +276,20 @@ export function filterNavigationByPermission(params: {
   return sidebarNavigation
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => params.can(item.permission)),
+      items: group.items.filter((item) => {
+        const role = String(params.organisationRole ?? "")
+          .trim()
+          .toLowerCase();
+
+        const isSuperadmin =
+          role === "platform_owner" || role === "superadmin";
+
+        if (item.superadminOnly && !isSuperadmin) {
+          return false;
+        }
+
+        return params.can(item.permission);
+      }),
     }))
     .filter((group) => group.items.length > 0);
 }

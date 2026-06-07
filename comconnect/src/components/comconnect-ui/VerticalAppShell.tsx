@@ -14,6 +14,11 @@ type VerticalAppShellProps = {
   projectName?: string;
 };
 
+type NavigationItemForVisibility = {
+  permission: Permission;
+  superadminOnly?: boolean;
+};
+
 export function VerticalAppShell({
   children,
   organisationRole = "organisation_admin",
@@ -32,6 +37,20 @@ export function VerticalAppShell({
     });
   }
 
+  function isSuperadminUser() {
+    const role = String(organisationRole ?? "").trim().toLowerCase();
+
+    return role === "platform_owner" || role === "superadmin";
+  }
+
+  function canSeeNavigationItem(item: NavigationItemForVisibility) {
+    if (item.superadminOnly && !isSuperadminUser()) {
+      return false;
+    }
+
+    return can(item.permission);
+  }
+
   async function handleLogout() {
     try {
       await fetch("/api/auth/logout", {
@@ -46,7 +65,7 @@ export function VerticalAppShell({
   const visibleNavigation = sidebarNavigation
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => can(item.permission)),
+      items: group.items.filter((item) => canSeeNavigationItem(item)),
     }))
     .filter((group) => group.items.length > 0);
 
