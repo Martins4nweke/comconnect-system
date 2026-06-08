@@ -93,6 +93,16 @@ const externalEndpoints = [
       "Creates participant records only. Does not send messages or touch wallet/provider routes.",
   },
   {
+    method: "GET",
+    path: "/api/external/messages",
+    scope: "messages:read",
+    status: "Ready",
+    purpose:
+      "Read app messages published within the API key organisation/project scope.",
+    safety:
+      "Read-only. Returns app_messages records only. For SMS, voice and WhatsApp queued records, use GET /api/external/schedules.",
+  },
+  {
     method: "POST",
     path: "/api/external/messages/send",
     scope: "messages:write",
@@ -100,6 +110,16 @@ const externalEndpoints = [
     purpose: "Accept app, push, SMS, WhatsApp or voice message requests.",
     safety:
       "App is published to app messages. Push is queued. SMS, voice and WhatsApp are queued as guarded communication schedules.",
+  },
+  {
+    method: "GET",
+    path: "/api/external/schedules",
+    scope: "schedules:read",
+    status: "Ready",
+    purpose:
+      "Read communication schedules within the API key organisation/project scope.",
+    safety:
+      "Read-only. Useful for checking queued SMS, voice, WhatsApp and scheduled communication records.",
   },
   {
     method: "POST",
@@ -138,7 +158,6 @@ const externalEndpoints = [
       "Sends only a test webhook payload. Does not send participant messages or deduct wallet.",
   },
 ];
-
 const rules = [
   "API access is organisation-scoped and may also be project-scoped.",
   "API keys are controlled by plan, role, permission and key scope.",
@@ -208,6 +227,22 @@ const examples = [
     code: `GET /api/external/participants?limit=10&offset=0`,
   },
   {
+    title: "Read app messages",
+    code: `GET /api/external/messages?limit=10&offset=0`,
+  },
+  {
+    title: "Read schedules",
+    code: `GET /api/external/schedules?limit=10&offset=0`,
+  },
+  {
+    title: "Read delivery logs",
+    code: `GET /api/external/delivery-logs?limit=10&offset=0`,
+  },
+  {
+    title: "Read replies/help requests",
+    code: `GET /api/external/replies?limit=10&offset=0`,
+  },
+  {
     title: "JSON app message test",
     code: `POST /api/external/messages/send
 {
@@ -264,6 +299,13 @@ const examples = [
   "message_body": "This voice call is queued for guarded ComConnect sending.",
   "priority": "normal",
   "respect_quiet_time": true
+}`,
+  },
+  {
+    title: "Test webhook",
+    code: `POST /api/external/webhooks/test
+{
+  "webhook_id": "webhook-uuid"
 }`,
   },
   {
@@ -687,13 +729,12 @@ export default function AppApiPage() {
             Implementation status
           </p>
           <p className="mt-3 text-sm font-bold leading-6 text-emerald-800">
-            External API authentication, participant read/create, delivery log
-            read, replies read, webhook testing, schedule creation and message
-            acceptance are implemented. App messages are published to the
-            participant app. Push is queued. SMS, voice and WhatsApp are
-            accepted into controlled ComConnect schedules so billing, wallet,
-            provider delivery, retries and logs remain under the existing
-            guarded sender flow.
+            External API authentication, participant read/create, app message read,
+delivery log read, replies read, webhook testing, schedule read/create and
+message acceptance are implemented. App messages are published to the
+participant app. Push is queued. SMS, voice and WhatsApp are accepted into
+controlled ComConnect schedules so billing, wallet, provider delivery, retries
+and logs remain under the existing guarded sender flow.
           </p>
         </section>
       </div>

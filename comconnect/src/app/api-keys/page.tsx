@@ -67,27 +67,12 @@ const apiScopeOptions = [
       "Allow external systems to create app messages or queue push/SMS/voice/WhatsApp through guarded workflows.",
     group: "Messages",
   },
-  {
-    scope: "schedules:read",
-    label: "Read schedules",
-    description: "Reserved for future schedule reading.",
-    group: "Schedules",
-  },
-  
 {
   scope: "schedules:write",
   label: "Create schedules",
   description: "Allow external systems to create guarded communication schedules.",
   group: "Schedules",
 },
-
-{
-  scope: "schedules:read",
-  label: "Read schedules",
-  description: "Allow external systems to read scoped communication schedules.",
-  group: "Schedules",
-},
-
 {
   scope: "schedules:read",
   label: "Read schedules",
