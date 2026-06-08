@@ -1,14 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   CompactCard,
   FieldLabel,
-  LinkButton,
   Notice,
-  PageHeader,
   PageShell,
-  SecondaryButton,
   SelectInput,
   StatusPill,
 } from "@/components/comconnect-ui/DashboardUI";
@@ -45,6 +43,12 @@ type DeliveryLog = {
     metadata?: any;
   } | null;
 };
+
+const pageLinkClass =
+  "rounded-2xl border border-[#C9D8E4] bg-white px-4 py-2 text-sm font-black text-[#06324A] shadow-sm hover:border-[#0A5278] hover:text-[#0A5278]";
+
+const secondaryButtonClass =
+  "rounded-xl border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] hover:border-[#0A5278] hover:text-[#0A5278] disabled:cursor-not-allowed disabled:opacity-50";
 
 function dt(value?: string | null) {
   if (!value) return "—";
@@ -219,44 +223,62 @@ export default function DeliveryLogsPage() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Core communication"
-        title="Delivery logs"
-        subtitle="Monitor delivery status across channels."
-        actions={
-          <>
-            <LinkButton href="/scheduler">Scheduler</LinkButton>
-            <LinkButton href="/">Dashboard</LinkButton>
-          </>
-        }
-      />
+      <section className="mb-5 rounded-[2rem] border border-[#C9D8E4] bg-[#032A3D] p-6 text-white shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C9D8E4]">
+          Core communication
+        </p>
+
+        <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight">
+              Delivery logs
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EAF2F8]">
+              Monitor delivery status across app, push, SMS, voice and WhatsApp
+              channels.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link href="/" className={pageLinkClass}>
+              Dashboard
+            </Link>
+            <Link href="/scheduler" className={pageLinkClass}>
+              Scheduler
+            </Link>
+            <Link href="/messages" className={pageLinkClass}>
+              Messages
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {note ? <Notice tone="danger">{note}</Notice> : null}
 
       <div className="mb-4 grid gap-3 md:grid-cols-3">
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
+          <p className="text-xs font-black uppercase text-[#536271]">
             Organisation
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {loadingContext
-              ? "Loading..."
-              : context?.organisation_name ?? "—"}
+          <p className="mt-1 text-sm font-black text-[#06324A]">
+            {loadingContext ? "Loading..." : context?.organisation_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Project</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {loadingContext
-              ? "Loading..."
-              : context?.active_project_name ?? "—"}
+          <p className="text-xs font-black uppercase text-[#536271]">
+            Project
+          </p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
+            {loadingContext ? "Loading..." : context?.active_project_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Loaded</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="text-xs font-black uppercase text-[#536271]">
+            Loaded
+          </p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {logs.length}
           </p>
         </CompactCard>
@@ -266,9 +288,14 @@ export default function DeliveryLogsPage() {
         title="Delivery events"
         subtitle="Latest delivery records."
         action={
-          <SecondaryButton onClick={loadLogs} disabled={loading || !context}>
+          <button
+            type="button"
+            onClick={loadLogs}
+            disabled={loading || !context}
+            className={secondaryButtonClass}
+          >
             {loading ? "Refreshing..." : "Refresh"}
-          </SecondaryButton>
+          </button>
         }
       >
         <div className="mb-4 grid gap-3 md:grid-cols-2">
@@ -306,41 +333,41 @@ export default function DeliveryLogsPage() {
           </FieldLabel>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200">
+        <div className="overflow-hidden rounded-2xl border border-[#C9D8E4] bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-[#FFF7F2]">
+            <table className="min-w-full divide-y divide-[#C9D8E4] text-sm">
+              <thead className="bg-[#EAF2F8]">
                 <tr>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Time
                   </th>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Participant
                   </th>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Channel
                   </th>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Provider
                   </th>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Message
                   </th>
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Error
                   </th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[#EAF2F8]">
                 {loading ? (
                   <tr>
                     <td
                       colSpan={7}
-                      className="px-4 py-8 text-sm font-bold text-slate-500"
+                      className="px-4 py-8 text-sm font-bold text-[#536271]"
                     >
                       Loading...
                     </td>
@@ -349,34 +376,34 @@ export default function DeliveryLogsPage() {
                   <tr>
                     <td
                       colSpan={7}
-                      className="px-4 py-8 text-sm font-bold text-slate-500"
+                      className="px-4 py-8 text-sm font-bold text-[#536271]"
                     >
                       No delivery logs.
                     </td>
                   </tr>
                 ) : (
                   logs.map((row) => (
-                    <tr key={row.id} className="hover:bg-[#FFF7F2]">
-                      <td className="px-4 py-3 font-bold text-slate-700">
+                    <tr key={row.id} className="hover:bg-[#EAF2F8]">
+                      <td className="px-4 py-3 font-bold text-[#06324A]">
                         {dt(row.created_at)}
                       </td>
 
-                      <td className="px-4 py-3 font-bold text-slate-700">
+                      <td className="px-4 py-3 font-bold text-[#06324A]">
                         <p>{participantLabel(row)}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-[#536271]">
                           {row.participants?.participant_code ??
                             row.phone_number ??
                             "—"}
                         </p>
                       </td>
 
-                      <td className="px-4 py-3 font-black text-slate-700">
+                      <td className="px-4 py-3 font-black text-[#06324A]">
                         {channelLabel(row)}
                       </td>
 
-                      <td className="px-4 py-3 font-bold text-slate-700">
+                      <td className="px-4 py-3 font-bold text-[#06324A]">
                         <p>{row.provider ?? "—"}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-[#536271]">
                           {row.provider_status ??
                             row.provider_message_id ??
                             ""}
@@ -389,7 +416,7 @@ export default function DeliveryLogsPage() {
                         </StatusPill>
                       </td>
 
-                      <td className="px-4 py-3 text-slate-700">
+                      <td className="px-4 py-3 text-[#06324A]">
                         <p className="max-w-md truncate text-xs font-semibold">
                           {messagePreview(row)}
                         </p>

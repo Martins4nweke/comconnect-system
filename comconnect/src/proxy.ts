@@ -20,8 +20,17 @@ function getCorsHeaders(req: NextRequest) {
   };
 }
 
+function withCors(response: NextResponse, corsHeaders: Record<string, string>) {
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    response.headers.set(key, value);
+  });
+
+  return response;
+}
+
 export function proxy(req: NextRequest) {
   const corsHeaders = getCorsHeaders(req);
+  const pathname = req.nextUrl.pathname;
 
   if (req.method === "OPTIONS") {
     return new NextResponse(null, {
@@ -30,13 +39,15 @@ export function proxy(req: NextRequest) {
     });
   }
 
-  const response = NextResponse.next();
+  if (
+    pathname.startsWith("/api/cron/") ||
+    pathname.startsWith("/api/communication/send-due") ||
+    pathname.startsWith("/api/heartbeat")
+  ) {
+    return withCors(NextResponse.next(), corsHeaders);
+  }
 
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    response.headers.set(key, value);
-  });
-
-  return response;
+  return withCors(NextResponse.next(), corsHeaders);
 }
 
 export const config = {

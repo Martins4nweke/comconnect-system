@@ -5,13 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import {
-  CompactCard,
   FieldLabel,
-  LinkButton,
   Notice,
-  PageHeader,
   PageShell,
-  PrimaryButton,
   SelectInput,
   TextInput,
 } from "@/components/comconnect-ui/DashboardUI";
@@ -234,6 +230,23 @@ function schedulerHref({
   return `/scheduler?${params.toString()}`;
 }
 
+function PageLinkButton({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-full border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] shadow-sm transition hover:border-[#0A5278] hover:bg-[#0A5278] hover:text-white"
+    >
+      {children}
+    </Link>
+  );
+}
+
 function MessagesPageContent() {
   const searchParams = useSearchParams();
 
@@ -450,7 +463,7 @@ function MessagesPageContent() {
       }
 
       setNote(
-        `Bulk upload complete. Saved ${
+        `Import complete. Saved ${
           json.data?.inserted_or_updated_count ?? 0
         } message(s).`
       );
@@ -548,320 +561,382 @@ function MessagesPageContent() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Core Communication"
-        title="Messages"
-        subtitle="Create, upload and schedule reusable project messages."
-        actions={
-          <>
-            <LinkButton href="/participants">Participants</LinkButton>
-            <LinkButton href="/media-library">Media</LinkButton>
-            <LinkButton href="/">Dashboard</LinkButton>
-          </>
-        }
-      />
+      <div className="space-y-5">
+        <section className="rounded-[2rem] bg-[#032A3D] p-6 text-white shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-[#28A9E0]">
+            Core Communication
+          </p>
 
-      {note ? <Notice tone="warning">{note}</Notice> : null}
-
-      <div className="mb-4 grid gap-3 md:grid-cols-3">
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Organisation
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {context?.organisation_name ?? "Loading..."}
-          </p>
-        </CompactCard>
-
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Project
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {context?.active_project_name ?? "Loading..."}
-          </p>
-        </CompactCard>
-
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Records
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {savedMessages.length} loaded
-          </p>
-        </CompactCard>
-      </div>
-
-      {participantId || participantCode ? (
-        <CompactCard title="Selected participant">
-          {loadingParticipant ? (
-            <p className="text-sm font-bold text-slate-600">Loading...</p>
-          ) : selectedParticipant ? (
-            <div className="grid gap-2 text-sm font-bold text-slate-700 md:grid-cols-4">
-              <p>Code: {selectedParticipant.participant_code}</p>
-              <p>Name: {participantName(selectedParticipant)}</p>
-              <p>Phone: {selectedParticipant.phone_number ?? "—"}</p>
-              <p>
-                Channel: {selectedParticipant.metadata?.preferred_channel ?? "app"}
+          <div className="mt-4 grid gap-5 lg:grid-cols-[1.4fr_0.6fr] lg:items-end">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                Messages
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-white/80">
+                Create, import and schedule reusable project messages.
               </p>
             </div>
-          ) : (
-            <p className="text-sm font-bold text-slate-600">
-              Participant: {participantCode ?? participantId}
-            </p>
-          )}
-        </CompactCard>
-      ) : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
-        <CompactCard
-          title="Create message"
-          action={
-            <>
-              <input
-                ref={bulkInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void handleBulkMessageFile(file);
-                }}
-              />
-              <PrimaryButton
-                disabled={bulkBusy || !activeProjectId}
-                onClick={() => bulkInputRef.current?.click()}
-              >
-                {bulkBusy ? "Uploading..." : "Bulk upload"}
-              </PrimaryButton>
-            </>
-          }
-        >
-          <div className="grid gap-3 md:grid-cols-2">
-            <FieldLabel label="Message code">
-              <TextInput
-                value={message.message_code}
-                onChange={(event) =>
-                  updateMessage({ message_code: event.target.value })
-                }
-                placeholder="HTN-W01-MON"
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Title">
-              <TextInput
-                value={message.title}
-                onChange={(event) => updateMessage({ title: event.target.value })}
-                placeholder="Short title"
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Channel">
-              <SelectInput
-                value={message.channel}
-                onChange={(event) =>
-                  updateMessage({ channel: event.target.value as Channel })
-                }
-              >
-                {channels.map((channel) => (
-                  <option key={channel.value} value={channel.value}>
-                    {channel.label}
-                  </option>
-                ))}
-              </SelectInput>
-            </FieldLabel>
-
-            <FieldLabel label="Language">
-              <SelectInput
-                value={message.language}
-                onChange={(event) =>
-                  updateMessage({ language: event.target.value })
-                }
-              >
-                <option value="en">English</option>
-                <option value="zu">isiZulu</option>
-              </SelectInput>
-            </FieldLabel>
-
-            <FieldLabel label="Status">
-              <SelectInput
-                value={message.status}
-                onChange={(event) =>
-                  updateMessage({
-                    status: event.target.value as MessageDraft["status"],
-                  })
-                }
-              >
-                <option value="draft">Draft</option>
-                <option value="ready">Ready</option>
-                <option value="archived">Archived</option>
-              </SelectInput>
-            </FieldLabel>
-
-            <FieldLabel label="Media URL">
-              <TextInput
-                value={message.media_url}
-                onChange={(event) =>
-                  updateMessage({ media_url: event.target.value })
-                }
-                placeholder="Optional"
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Audio URL">
-              <TextInput
-                value={message.audio_url}
-                onChange={(event) =>
-                  updateMessage({ audio_url: event.target.value })
-                }
-                placeholder="Optional"
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Video URL">
-              <TextInput
-                value={message.video_url}
-                onChange={(event) =>
-                  updateMessage({ video_url: event.target.value })
-                }
-                placeholder="Optional"
-              />
-            </FieldLabel>
-          </div>
-
-          <textarea
-            value={message.body}
-            onChange={(event) => updateMessage({ body: event.target.value })}
-            placeholder="Hello {{name}}, your code is {{participant_code}}."
-            className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
-
-          <div className="mt-3 rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3">
-            <p className="text-xs font-black uppercase text-slate-500">
-              Preview
-            </p>
-            <p className="mt-1 whitespace-pre-wrap text-sm font-bold leading-6 text-slate-800">
-              {personalisedPreview}
-            </p>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <PrimaryButton disabled={!activeProjectId} onClick={createMessage}>
-              Save message
-            </PrimaryButton>
-
-            {participantId ? (
-              <Link
-                href={`/scheduler?participant_id=${encodeURIComponent(
-                  participantId
-                )}&participant_code=${encodeURIComponent(
-                  participantCode ?? selectedParticipant?.participant_code ?? ""
-                )}&message_code=${encodeURIComponent(message.message_code)}`}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
-              >
-                Continue to scheduler
-              </Link>
-            ) : null}
-          </div>
-        </CompactCard>
-
-        <CompactCard
-          title="Message table"
-          action={
-            <button
-              type="button"
-              onClick={loadMessages}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
-            >
-              Refresh
-            </button>
-          }
-        >
-          <div className="overflow-hidden rounded-2xl border border-orange-100">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-[#FFF7F2]">
-                  <tr>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Code
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Title
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Channel
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Status
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-100">
-                  {loadingMessages ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-3 py-8 text-sm font-bold text-slate-500"
-                      >
-                        Loading...
-                      </td>
-                    </tr>
-                  ) : savedMessages.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-3 py-8 text-sm font-bold text-slate-500"
-                      >
-                        No saved messages.
-                      </td>
-                    </tr>
-                  ) : (
-                    savedMessages.map((row) => (
-                      <tr key={row.id} className="hover:bg-[#FFF7F2]">
-                        <td className="px-3 py-3 font-black text-slate-700">
-                          {row.message_code}
-                        </td>
-
-                        <td className="px-3 py-3 text-slate-700">
-                          <p className="font-black">{row.message_title}</p>
-                          <p className="mt-1 max-w-xs truncate text-xs font-semibold text-slate-500">
-                            {row.message_body}
-                          </p>
-                        </td>
-
-                        <td className="px-3 py-3 font-bold text-slate-700">
-                          {row.channel}
-                        </td>
-
-                        <td className="px-3 py-3 font-black text-slate-700">
-                          {row.status}
-                        </td>
-
-                        <td className="px-3 py-3">
-                          <Link
-                            href={schedulerHref({
-                              row,
-                              participantId,
-                              participantCode,
-                              selectedParticipant,
-                            })}
-                            className="rounded-lg border border-slate-200 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
-                          >
-                            Schedule
-                          </Link>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60">
+                Active project
+              </p>
+              <p className="mt-2 text-xl font-black text-white">
+                {context?.active_project_name ?? "Loading..."}
+              </p>
+              <p className="mt-2 text-xs font-semibold leading-5 text-white/70">
+                {context?.organisation_name ?? "Loading organisation..."}
+              </p>
             </div>
           </div>
-        </CompactCard>
+        </section>
+
+        <div className="flex flex-wrap gap-2">
+          <PageLinkButton href="/dashboard">Dashboard</PageLinkButton>
+          <PageLinkButton href="/participants">Participants</PageLinkButton>
+          <PageLinkButton href="/scheduler">Scheduler</PageLinkButton>
+          <PageLinkButton href="/media-library">Media Library</PageLinkButton>
+        </div>
+
+        {note ? <Notice tone="warning">{note}</Notice> : null}
+
+        <section className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Organisation
+            </p>
+            <p className="mt-2 text-sm font-black text-[#06324A]">
+              {context?.organisation_name ?? "Loading..."}
+            </p>
+          </div>
+
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Project
+            </p>
+            <p className="mt-2 text-sm font-black text-[#06324A]">
+              {context?.active_project_name ?? "Loading..."}
+            </p>
+          </div>
+
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Records
+            </p>
+            <p className="mt-2 text-sm font-black text-[#06324A]">
+              {savedMessages.length} loaded
+            </p>
+          </div>
+        </section>
+
+        {participantId || participantCode ? (
+          <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Selected participant
+            </p>
+
+            {loadingParticipant ? (
+              <p className="mt-3 text-sm font-bold text-[#536271]">
+                Loading...
+              </p>
+            ) : selectedParticipant ? (
+              <div className="mt-4 grid gap-2 text-sm font-bold text-[#536271] md:grid-cols-4">
+                <p>Code: {selectedParticipant.participant_code}</p>
+                <p>Name: {participantName(selectedParticipant)}</p>
+                <p>Phone: {selectedParticipant.phone_number ?? "—"}</p>
+                <p>
+                  Channel:{" "}
+                  {selectedParticipant.metadata?.preferred_channel ?? "app"}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm font-bold text-[#536271]">
+                Participant: {participantCode ?? participantId}
+              </p>
+            )}
+          </section>
+        ) : null}
+
+        <section className="grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                  Message actions
+                </p>
+                <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+                  Create or import message
+                </h2>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={bulkInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleBulkMessageFile(file);
+                  }}
+                />
+
+                <button
+                  type="button"
+                  disabled={bulkBusy || !activeProjectId}
+                  onClick={() => bulkInputRef.current?.click()}
+                  className="rounded-full border border-[#C9D8E4] bg-white px-5 py-3 text-sm font-black text-[#06324A] transition hover:border-[#0A5278] hover:bg-[#EAF2F8] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {bulkBusy ? "Importing..." : "Import messages"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <FieldLabel label="Message code">
+                <TextInput
+                  value={message.message_code}
+                  onChange={(event) =>
+                    updateMessage({ message_code: event.target.value })
+                  }
+                  placeholder="HTN-W01-MON"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Title">
+                <TextInput
+                  value={message.title}
+                  onChange={(event) =>
+                    updateMessage({ title: event.target.value })
+                  }
+                  placeholder="Short title"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Channel">
+                <SelectInput
+                  value={message.channel}
+                  onChange={(event) =>
+                    updateMessage({ channel: event.target.value as Channel })
+                  }
+                >
+                  {channels.map((channel) => (
+                    <option key={channel.value} value={channel.value}>
+                      {channel.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FieldLabel>
+
+              <FieldLabel label="Language">
+                <SelectInput
+                  value={message.language}
+                  onChange={(event) =>
+                    updateMessage({ language: event.target.value })
+                  }
+                >
+                  <option value="en">English</option>
+                  <option value="zu">isiZulu</option>
+                </SelectInput>
+              </FieldLabel>
+
+              <FieldLabel label="Status">
+                <SelectInput
+                  value={message.status}
+                  onChange={(event) =>
+                    updateMessage({
+                      status: event.target.value as MessageDraft["status"],
+                    })
+                  }
+                >
+                  <option value="draft">Draft</option>
+                  <option value="ready">Ready</option>
+                  <option value="archived">Archived</option>
+                </SelectInput>
+              </FieldLabel>
+
+              <FieldLabel label="Media URL">
+                <TextInput
+                  value={message.media_url}
+                  onChange={(event) =>
+                    updateMessage({ media_url: event.target.value })
+                  }
+                  placeholder="Optional"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Audio URL">
+                <TextInput
+                  value={message.audio_url}
+                  onChange={(event) =>
+                    updateMessage({ audio_url: event.target.value })
+                  }
+                  placeholder="Optional"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Video URL">
+                <TextInput
+                  value={message.video_url}
+                  onChange={(event) =>
+                    updateMessage({ video_url: event.target.value })
+                  }
+                  placeholder="Optional"
+                />
+              </FieldLabel>
+            </div>
+
+            <textarea
+              value={message.body}
+              onChange={(event) => updateMessage({ body: event.target.value })}
+              placeholder="Hello {{name}}, your code is {{participant_code}}."
+              className="mt-3 min-h-28 w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
+            />
+
+            <div className="mt-3 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-3">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                Preview
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6 text-[#06324A]">
+                {personalisedPreview}
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                disabled={!activeProjectId}
+                onClick={createMessage}
+                className="rounded-full bg-[#0A5278] px-5 py-3 text-sm font-black text-white transition hover:bg-[#063E5E] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Save message
+              </button>
+
+              {participantId ? (
+                <Link
+                  href={`/scheduler?participant_id=${encodeURIComponent(
+                    participantId
+                  )}&participant_code=${encodeURIComponent(
+                    participantCode ??
+                      selectedParticipant?.participant_code ??
+                      ""
+                  )}&message_code=${encodeURIComponent(message.message_code)}`}
+                  className="rounded-full border border-[#C9D8E4] bg-white px-5 py-3 text-sm font-black text-[#06324A] transition hover:border-[#0A5278] hover:bg-[#EAF2F8]"
+                >
+                  Continue to scheduler
+                </Link>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                  Message table
+                </p>
+                <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+                  Saved messages
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadMessages}
+                className="rounded-full border border-[#C9D8E4] bg-white px-5 py-3 text-sm font-black text-[#06324A] transition hover:border-[#0A5278] hover:bg-[#EAF2F8]"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-2xl border border-[#C9D8E4]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[#C9D8E4] text-sm">
+                  <thead className="bg-[#EAF2F8]">
+                    <tr>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Code
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Title
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Channel
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Status
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-[#EAF2F8]">
+                    {loadingMessages ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-3 py-8 text-sm font-bold text-[#536271]"
+                        >
+                          Loading...
+                        </td>
+                      </tr>
+                    ) : savedMessages.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-3 py-8 text-sm font-bold text-[#536271]"
+                        >
+                          No saved messages.
+                        </td>
+                      </tr>
+                    ) : (
+                      savedMessages.map((row) => (
+                        <tr key={row.id} className="hover:bg-[#F7FBFD]">
+                          <td className="px-3 py-3 font-black text-[#06324A]">
+                            {row.message_code}
+                          </td>
+
+                          <td className="px-3 py-3 text-[#536271]">
+                            <p className="font-black text-[#06324A]">
+                              {row.message_title}
+                            </p>
+                            <p className="mt-1 max-w-xs truncate text-xs font-semibold text-[#536271]">
+                              {row.message_body}
+                            </p>
+                          </td>
+
+                          <td className="px-3 py-3 font-bold text-[#536271]">
+                            {row.channel}
+                          </td>
+
+                          <td className="px-3 py-3 font-black text-[#536271]">
+                            {row.status}
+                          </td>
+
+                          <td className="px-3 py-3">
+                            <Link
+                              href={schedulerHref({
+                                row,
+                                participantId,
+                                participantCode,
+                                selectedParticipant,
+                              })}
+                              className="rounded-lg border border-[#C9D8E4] bg-white px-2 py-1 text-xs font-black text-[#06324A] transition hover:border-[#0A5278] hover:bg-[#EAF2F8]"
+                            >
+                              Schedule
+                            </Link>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </PageShell>
   );
@@ -869,7 +944,7 @@ function MessagesPageContent() {
 
 export default function MessagesPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-[#EEF3FB] p-4 md:p-6" />}>
+    <Suspense fallback={<main className="min-h-screen bg-[#EAF2F8] p-4 md:p-6" />}>
       <MessagesPageContent />
     </Suspense>
   );

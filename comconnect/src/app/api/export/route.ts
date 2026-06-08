@@ -8,10 +8,23 @@ import {
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import JSZip from "jszip";
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType,
+} from "docx";
 
 export const runtime = "nodejs";
 
-type ExportFormat = "csv" | "xlsx" | "pdf" | "json" | "zip";
+type ExportFormat = "csv" | "xlsx" | "pdf" | "json" | "zip" | "docx";
 
 type DatasetConfig = {
   label: string;
@@ -56,6 +69,13 @@ const DATASETS: Record<string, DatasetConfig> = {
     dateColumn: "created_at",
     statusColumn: "status",
     archivedColumn: "archived_at",
+    scope: "project",
+  },
+  questionnaire_responses: {
+    label: "Questionnaire Responses",
+    table: "questionnaire_responses",
+    dateColumn: "submitted_at",
+    statusColumn: "status",
     scope: "project",
   },
   delivery_events: {
@@ -288,6 +308,446 @@ function effectiveProjectId(context: ScopedContext, requestedProjectId: string) 
   return requestedProjectId || context.active_project_id || "";
 }
 
+function answerPreviewForExport(answers: any) {
+  if (!answers) return "";
+
+  if (typeof answers === "string") return answers;
+
+  if (Array.isArray(answers)) {
+    return JSON.stringify(answers);
+  }
+
+  if (typeof answers === "object") {
+    return Object.entries(answers)
+      .map(([key, value]) => {
+        const text =
+          value && typeof value === "object"
+            ? JSON.stringify(value)
+            : String(value ?? "");
+
+        return `${key}: ${text}`;
+      })
+      .join(" | ");
+  }
+
+  return String(answers);
+}
+
+function questionTypeLabel(value: unknown) {
+  return cleanText(value).replace(/_/g, " ") || "Question";
+}
+
+function optionText(value: any) {
+  if (!value) return "";
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        return item?.label ?? item?.value ?? JSON.stringify(item);
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
+function cell(text: string, shaded = false) {
+  return new TableCell({
+    children: [new Paragraph({ text })],
+    shading: shaded ? { fill: "EAF2F8" } : undefined,
+  });
+}
+
+function headerCell(text: string) {
+  return new TableCell({
+    children: [
+      new Paragraph({
+        children: [new TextRun({ text, bold: true })],
+      }),
+    ],
+    shading: { fill: "EAF2F8" },
+  });
+}
+
+async function getQuestionnaireWordRows(params: {
+  context: ScopedContext;
+  projectId: string;
+  questionnaireId?: string;
+  status?: string;
+  start?: string;
+  end?: string;
+  limit: number;
+}) {
+  let query = supabaseAdmin
+    .from("questionnaires")
+    .select("*, questionnaire_questions(*)")
+    .eq("organisation_id", params.context.organisation_id)
+    .order("created_at", { ascending: false })
+    .limit(params.limit);
+
+  if (params.projectId) {
+    query = query.eq("project_id", params.projectId);
+  } else if (params.context.allowed_project_ids.length > 0) {
+    query = query.in("project_id", params.context.allowed_project_ids);
+  } else {
+    query = query.eq("project_id", "__no_project_access__");
+  }
+
+  if (params.questionnaireId) {
+    query = query.eq("id", params.questionnaireId);
+  }
+
+  if (params.questionnaireId) {
+    query = query.eq("questionnaire_id", params.questionnaireId);
+  }
+
+  if (params.status) {
+    query = query.eq("status", params.status);
+  }
+
+  if (params.start) {
+    query = query.gte("created_at", params.start);
+  }
+
+  if (params.end) {
+    query = query.lte("created_at", params.end);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  return data ?? [];
+}
+
+async function getQuestionnaireResponseRows(params: {
+  context: ScopedContext;
+  projectId: string;
+  questionnaireId?: string;
+  status?: string;
+  start?: string;
+  end?: string;
+  limit: number;
+}) {
+  let query = supabaseAdmin
+    .from("questionnaire_responses")
+    .select("*")
+    .eq("organisation_id", params.context.organisation_id)
+    .order("submitted_at", { ascending: false })
+    .limit(params.limit);
+
+  if (params.projectId) {
+    query = query.eq("project_id", params.projectId);
+  } else if (params.context.allowed_project_ids.length > 0) {
+    query = query.in("project_id", params.context.allowed_project_ids);
+  } else {
+    query = query.eq("project_id", "__no_project_access__");
+  }
+
+  if (params.status) {
+    query = query.eq("status", params.status);
+  }
+
+  if (params.start) {
+    query = query.gte("submitted_at", params.start);
+  }
+
+  if (params.end) {
+    query = query.lte("submitted_at", params.end);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  const rows = data ?? [];
+
+  const participantIds = Array.from(
+    new Set(
+      rows.map((row: any) => cleanText(row.participant_id)).filter(Boolean)
+    )
+  );
+
+  const questionnaireIds = Array.from(
+    new Set(
+      rows.map((row: any) => cleanText(row.questionnaire_id)).filter(Boolean)
+    )
+  );
+
+  let participantsById: Record<string, any> = {};
+  let questionnairesById: Record<string, any> = {};
+
+  if (participantIds.length > 0) {
+    const { data: participants, error: participantError } = await supabaseAdmin
+      .from("participants")
+      .select("*")
+      .in("id", participantIds);
+
+    if (participantError) throw new Error(participantError.message);
+
+    participantsById = Object.fromEntries(
+      (participants ?? []).map((participant: any) => [
+        participant.id,
+        participant,
+      ])
+    );
+  }
+
+  if (questionnaireIds.length > 0) {
+    const { data: questionnaires, error: questionnaireError } =
+      await supabaseAdmin
+        .from("questionnaires")
+        .select("*")
+        .in("id", questionnaireIds);
+
+    if (questionnaireError) throw new Error(questionnaireError.message);
+
+    questionnairesById = Object.fromEntries(
+      (questionnaires ?? []).map((questionnaire: any) => [
+        questionnaire.id,
+        questionnaire,
+      ])
+    );
+  }
+
+  return rows.map((row: any) => {
+    const participant = participantsById[row.participant_id] ?? {};
+    const questionnaire = questionnairesById[row.questionnaire_id] ?? {};
+
+    const fullName = `${participant.first_name ?? ""} ${
+      participant.last_name ?? ""
+    }`.trim();
+
+    return {
+      id: row.id,
+      organisation_id: row.organisation_id,
+      project_id: row.project_id,
+      participant_id: row.participant_id,
+      participant_code: participant.participant_code ?? "",
+      participant_name:
+        participant.display_name ??
+        fullName ??
+        participant.full_name ??
+        "",
+      phone_number: participant.phone_number ?? participant.phone ?? "",
+      questionnaire_id: row.questionnaire_id,
+      questionnaire_title: questionnaire.title ?? "",
+      questionnaire_type:
+        questionnaire.questionnaire_type ??
+        questionnaire.settings?.questionnaire_type ??
+        "",
+      questionnaire_language: questionnaire.language ?? "",
+      version_label: questionnaire.version_label ?? "",
+      status: row.status ?? "",
+      submitted_at: row.submitted_at ?? "",
+      synced_at: row.synced_at ?? "",
+      created_offline_at: row.created_offline_at ?? "",
+      answer_count:
+        row.answers && typeof row.answers === "object"
+          ? Array.isArray(row.answers)
+            ? row.answers.length
+            : Object.keys(row.answers).length
+          : row.answers
+            ? 1
+            : 0,
+      answers: answerPreviewForExport(row.answers),
+      raw_answers_json: JSON.stringify(row.answers ?? {}),
+      score: flattenValue(row.score),
+      metadata: flattenValue(row.metadata),
+      created_at: row.created_at ?? "",
+    };
+  });
+}
+
+async function questionnaireWordBuffer(
+  rows: any[],
+  params: {
+    title: string;
+    organisationName?: string | null;
+    projectName?: string | null;
+  }
+) {
+  const now = new Date().toLocaleString();
+
+  const children: any[] = [
+    new Paragraph({
+      text: params.title,
+      heading: HeadingLevel.TITLE,
+      alignment: AlignmentType.CENTER,
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: `Organisation: ${params.organisationName ?? "—"}`,
+          bold: true,
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: `Project: ${params.projectName ?? "—"}`,
+          bold: true,
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: `Generated: ${now}`,
+          italics: true,
+        }),
+      ],
+    }),
+    new Paragraph({ text: "" }),
+  ];
+
+  if (rows.length === 0) {
+    children.push(
+      new Paragraph({
+        text: "No questionnaires found for the selected filters.",
+      })
+    );
+  }
+
+  rows.forEach((questionnaire: any, questionnaireIndex: number) => {
+    const questions = [...(questionnaire.questionnaire_questions ?? [])].sort(
+      (a: any, b: any) =>
+        Number(a.sort_order ?? a.question_order ?? a.order_index ?? 0) -
+        Number(b.sort_order ?? b.question_order ?? b.order_index ?? 0)
+    );
+
+    children.push(
+      new Paragraph({
+        text: `${questionnaireIndex + 1}. ${
+          questionnaire.title ?? "Untitled questionnaire"
+        }`,
+        heading: HeadingLevel.HEADING_1,
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({ text: "Type: ", bold: true }),
+          new TextRun(
+            questionnaire.questionnaire_type ??
+              questionnaire.settings?.questionnaire_type ??
+              "—"
+          ),
+          new TextRun({ text: "    Language: ", bold: true }),
+          new TextRun(questionnaire.language ?? "—"),
+          new TextRun({ text: "    Status: ", bold: true }),
+          new TextRun(questionnaire.status ?? "—"),
+        ],
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({ text: "Version: ", bold: true }),
+          new TextRun(questionnaire.version_label ?? "—"),
+          new TextRun({ text: "    Created: ", bold: true }),
+          new TextRun(
+            questionnaire.created_at
+              ? new Date(questionnaire.created_at).toLocaleString()
+              : "—"
+          ),
+        ],
+      })
+    );
+
+    if (questionnaire.description) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: "Description: ", bold: true }),
+            new TextRun(questionnaire.description),
+          ],
+        })
+      );
+    }
+
+    children.push(new Paragraph({ text: "" }));
+
+    if (questions.length === 0) {
+      children.push(
+        new Paragraph({
+          text: "No questions found for this questionnaire.",
+        })
+      );
+    } else {
+      const tableRows = [
+        new TableRow({
+          tableHeader: true,
+          children: [
+            headerCell("No."),
+            headerCell("Question"),
+            headerCell("Type"),
+            headerCell("Required"),
+            headerCell("Options"),
+          ],
+        }),
+        ...questions.map(
+          (question: any, index: number) =>
+            new TableRow({
+              children: [
+                cell(String(index + 1)),
+                cell(question.question_text ?? "—"),
+                cell(questionTypeLabel(question.question_type)),
+                cell(question.required ? "Yes" : "No"),
+                cell(optionText(question.options) || "—"),
+              ],
+            })
+        ),
+      ];
+
+      children.push(
+        new Table({
+          width: {
+            size: 100,
+            type: WidthType.PERCENTAGE,
+          },
+          borders: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: "C9D8E4" },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: "C9D8E4" },
+            left: { style: BorderStyle.SINGLE, size: 1, color: "C9D8E4" },
+            right: { style: BorderStyle.SINGLE, size: 1, color: "C9D8E4" },
+            insideHorizontal: {
+              style: BorderStyle.SINGLE,
+              size: 1,
+              color: "C9D8E4",
+            },
+            insideVertical: {
+              style: BorderStyle.SINGLE,
+              size: 1,
+              color: "C9D8E4",
+            },
+          },
+          rows: tableRows,
+        })
+      );
+    }
+
+    children.push(new Paragraph({ text: "" }));
+  });
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {},
+        children,
+      },
+    ],
+  });
+
+  return Packer.toBuffer(doc);
+}
+
 async function getMediaManifest(params: {
   context: ScopedContext;
   projectId: string;
@@ -425,11 +885,48 @@ async function getRows(req: NextRequest, context: ScopedContext) {
   const includeArchived = url.searchParams.get("include_archived") === "true";
   const limit = parseLimit(url.searchParams.get("limit"));
   const mediaType = cleanText(url.searchParams.get("media_type")).toLowerCase();
+  const questionnaireId = cleanText(url.searchParams.get("questionnaire_id"));
 
   const projectError = validateRequestedProject(context, requestedProjectId);
   if (projectError) throw new Error(projectError);
 
   const projectId = effectiveProjectId(context, requestedProjectId);
+
+  if (dataset === "questionnaires_word") {
+    const rows = await getQuestionnaireWordRows({
+      context,
+      projectId,
+      questionnaireId,
+      status,
+      start,
+      end,
+      limit,
+    });
+
+    return {
+      dataset,
+      label: "Questionnaires",
+      rows,
+    };
+  }
+
+  if (dataset === "questionnaire_responses") {
+    const rows = await getQuestionnaireResponseRows({
+      context,
+      projectId,
+      questionnaireId,
+      status,
+      start,
+      end,
+      limit,
+    });
+
+    return {
+      dataset,
+      label: "Questionnaire Responses",
+      rows,
+    };
+  }
 
   if (dataset === "media_manifest") {
     const rows = await getMediaManifest({
@@ -522,6 +1019,38 @@ export async function GET(req: NextRequest) {
     const fileBase = safeFileName(
       `${label}_${new Date().toISOString().slice(0, 10)}`
     );
+
+    if (format === "docx") {
+      if (dataset !== "questionnaires_word") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Word export is only supported for Questionnaires.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const buffer = await questionnaireWordBuffer(rows, {
+        title: "Questionnaire Export",
+        organisationName:
+          (context as any).organisation_name ?? context.organisation_id,
+        projectName:
+          (context as any).active_project_name ??
+          effectiveProjectId(
+            context,
+            cleanText(url.searchParams.get("project_id"))
+          ),
+      });
+
+      return new NextResponse(new Uint8Array(buffer), {
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition": `attachment; filename="${fileBase}.docx"`,
+        },
+      });
+    }
 
     if (format === "json") {
       return NextResponse.json({

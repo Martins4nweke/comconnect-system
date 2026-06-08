@@ -1,15 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   CompactCard,
   FieldLabel,
-  LinkButton,
   Notice,
-  PageHeader,
   PageShell,
-  PrimaryButton,
-  SecondaryButton,
   SelectInput,
   StatusPill,
   TextInput,
@@ -99,6 +96,18 @@ const statuses: { value: EducationStatus; label: string }[] = [
   { value: "published", label: "Published" },
   { value: "archived", label: "Archived" },
 ];
+
+const pageLinkClass =
+  "rounded-2xl border border-[#C9D8E4] bg-white px-4 py-2 text-sm font-black text-[#06324A] shadow-sm hover:border-[#0A5278] hover:text-[#0A5278]";
+
+const primaryButtonClass =
+  "rounded-2xl bg-[#0A5278] px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-[#06324A] disabled:cursor-not-allowed disabled:opacity-50";
+
+const secondaryButtonClass =
+  "rounded-xl border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] hover:border-[#0A5278] hover:text-[#0A5278] disabled:cursor-not-allowed disabled:opacity-50";
+
+const textareaClass =
+  "w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]";
 
 function dt(value?: string | null) {
   if (!value) return "—";
@@ -613,42 +622,62 @@ export default function EducationLibraryPage() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Research"
-        title="Education Library"
-        subtitle="Create, publish and assign education."
-        actions={
-          <>
-            <LinkButton href="/media-library">Media Library</LinkButton>
-            <LinkButton href="/participants">Participants</LinkButton>
-            <LinkButton href="/">Dashboard</LinkButton>
-          </>
-        }
-      />
+      <section className="mb-5 rounded-[2rem] border border-[#C9D8E4] bg-[#032A3D] p-6 text-white shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C9D8E4]">
+          Research
+        </p>
+
+        <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight">
+              Education Library
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EAF2F8]">
+              Create, publish and assign education content to participants.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard" className={pageLinkClass}>
+  Dashboard
+</Link>
+            <Link href="/media-library" className={pageLinkClass}>
+              Media Library
+            </Link>
+            <Link href="/participants" className={pageLinkClass}>
+              Participants
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {errorMessage ? <Notice tone="danger">{errorMessage}</Notice> : null}
       {note ? <Notice tone="success">{note}</Notice> : null}
 
       <div className="mb-4 grid gap-3 md:grid-cols-3">
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
+          <p className="text-xs font-black uppercase text-[#536271]">
             Organisation
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {loadingContext ? "Loading..." : context?.organisation_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Project</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="text-xs font-black uppercase text-[#536271]">
+            Project
+          </p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {loadingContext ? "Loading..." : context?.active_project_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Loaded</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="text-xs font-black uppercase text-[#536271]">
+            Loaded
+          </p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {items.length}
           </p>
         </CompactCard>
@@ -719,14 +748,14 @@ export default function EducationLibraryPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Short description"
-              className="min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              className={`${textareaClass} min-h-20`}
             />
 
             <textarea
               value={textContent}
               onChange={(event) => setTextContent(event.target.value)}
               placeholder="Education text content"
-              className="min-h-32 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              className={`${textareaClass} min-h-32`}
             />
 
             <FieldLabel label="Media URL">
@@ -745,12 +774,13 @@ export default function EducationLibraryPage() {
               />
             </FieldLabel>
 
-            <PrimaryButton
+            <button
               type="submit"
               disabled={creating || !activeProjectId}
+              className={primaryButtonClass}
             >
               {creating ? "Creating..." : "Create education"}
-            </PrimaryButton>
+            </button>
           </form>
         </CompactCard>
 
@@ -778,19 +808,23 @@ export default function EducationLibraryPage() {
                 ))}
               </SelectInput>
 
-              <SecondaryButton onClick={() => loadEducationItems(activeProjectId)}>
+              <button
+                type="button"
+                onClick={() => loadEducationItems(activeProjectId)}
+                className={secondaryButtonClass}
+              >
                 {loadingItems ? "Loading..." : "Refresh"}
-              </SecondaryButton>
+              </button>
             </div>
           }
         >
           <div className="max-h-[640px] space-y-3 overflow-auto pr-1">
             {loadingItems ? (
-              <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+              <p className="rounded-2xl bg-[#EAF2F8] p-4 text-sm font-bold text-[#536271]">
                 Loading...
               </p>
             ) : filteredItems.length === 0 ? (
-              <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+              <p className="rounded-2xl bg-[#EAF2F8] p-4 text-sm font-bold text-[#536271]">
                 No education content.
               </p>
             ) : (
@@ -800,10 +834,10 @@ export default function EducationLibraryPage() {
                 return (
                   <article
                     key={item.id}
-                    className={`rounded-2xl border p-4 ${
+                    className={`rounded-2xl border p-4 shadow-sm ${
                       selectedItem?.id === item.id
-                        ? "border-orange-200 bg-[#FFF7F2]"
-                        : "border-slate-200 bg-white"
+                        ? "border-[#0A5278] bg-[#EAF2F8]"
+                        : "border-[#C9D8E4] bg-white"
                     }`}
                   >
                     <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
@@ -820,21 +854,22 @@ export default function EducationLibraryPage() {
                           <StatusPill>{item.language ?? "en"}</StatusPill>
                         </div>
 
-                        <h3 className="mt-2 text-sm font-black text-slate-950">
+                        <h3 className="mt-2 text-sm font-black text-[#06324A]">
                           {item.title}
                         </h3>
 
-                        <p className="mt-1 text-xs font-bold text-slate-500">
-                          {item.category ?? "Uncategorised"} · {dt(item.created_at)}
+                        <p className="mt-1 text-xs font-bold text-[#536271]">
+                          {item.category ?? "Uncategorised"} ·{" "}
+                          {dt(item.created_at)}
                         </p>
 
                         {item.description ? (
-                          <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">
+                          <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-[#536271]">
                             {item.description}
                           </p>
                         ) : null}
 
-                        <p className="mt-2 text-xs font-bold text-slate-600">
+                        <p className="mt-2 text-xs font-bold text-[#536271]">
                           Version:{" "}
                           {version
                             ? `${version.version_label ?? "—"} · ${
@@ -845,7 +880,8 @@ export default function EducationLibraryPage() {
                       </div>
 
                       <div className="flex flex-wrap gap-2">
-                        <SecondaryButton
+                        <button
+                          type="button"
                           onClick={() => {
                             setSelectedItem(item);
                             setVersionTextContent(item.text_content ?? "");
@@ -855,20 +891,23 @@ export default function EducationLibraryPage() {
                               item.settings?.thumbnail_url ?? ""
                             );
                           }}
+                          className={secondaryButtonClass}
                         >
                           Select
-                        </SecondaryButton>
+                        </button>
 
-                        <PrimaryButton
+                        <button
+                          type="button"
                           onClick={() => {
                             setSelectedItem(item);
                             document
                               .getElementById("assign-education-panel")
                               ?.scrollIntoView({ behavior: "smooth" });
                           }}
+                          className={primaryButtonClass}
                         >
                           Assign
-                        </PrimaryButton>
+                        </button>
                       </div>
                     </div>
                   </article>
@@ -914,7 +953,7 @@ export default function EducationLibraryPage() {
               value={versionTextContent}
               onChange={(event) => setVersionTextContent(event.target.value)}
               placeholder="Version text content"
-              className="min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              className={`${textareaClass} min-h-28`}
             />
 
             <FieldLabel label="Video low-data URL">
@@ -955,7 +994,7 @@ export default function EducationLibraryPage() {
               value={transcript}
               onChange={(event) => setTranscript(event.target.value)}
               placeholder="Transcript optional"
-              className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              className={`${textareaClass} min-h-24`}
             />
 
             <FieldLabel label="Estimated MB">
@@ -966,12 +1005,13 @@ export default function EducationLibraryPage() {
               />
             </FieldLabel>
 
-            <PrimaryButton
+            <button
               type="submit"
               disabled={creatingVersion || !selectedItem}
+              className={primaryButtonClass}
             >
               {creatingVersion ? "Saving..." : "Save version"}
-            </PrimaryButton>
+            </button>
           </form>
         </CompactCard>
 
@@ -988,13 +1028,13 @@ export default function EducationLibraryPage() {
               />
             </FieldLabel>
 
-            <div className="rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3">
-              <p className="text-xs font-black uppercase text-slate-500">
+            <div className="rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-3">
+              <p className="text-xs font-black uppercase text-[#536271]">
                 Participants
               </p>
 
               <div className="mt-3 grid gap-2 md:grid-cols-3">
-                <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
+                <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
                   <input
                     type="radio"
                     checked={assignmentMode === "one"}
@@ -1003,7 +1043,7 @@ export default function EducationLibraryPage() {
                   One
                 </label>
 
-                <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
+                <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
                   <input
                     type="radio"
                     checked={assignmentMode === "selected"}
@@ -1012,7 +1052,7 @@ export default function EducationLibraryPage() {
                   Selected
                 </label>
 
-                <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
+                <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
                   <input
                     type="radio"
                     checked={assignmentMode === "all"}
@@ -1057,35 +1097,43 @@ export default function EducationLibraryPage() {
                       className="min-w-[240px] flex-1"
                     />
 
-                    <SecondaryButton onClick={selectFilteredParticipants}>
+                    <button
+                      type="button"
+                      onClick={selectFilteredParticipants}
+                      className={secondaryButtonClass}
+                    >
                       Select filtered
-                    </SecondaryButton>
+                    </button>
 
-                    <SecondaryButton onClick={clearSelectedParticipants}>
+                    <button
+                      type="button"
+                      onClick={clearSelectedParticipants}
+                      className={secondaryButtonClass}
+                    >
                       Clear
-                    </SecondaryButton>
+                    </button>
                   </div>
 
-                  <p className="text-xs font-bold text-slate-500">
+                  <p className="text-xs font-bold text-[#536271]">
                     Showing {filteredParticipants.length}. Selected:{" "}
                     {selectedParticipantIds.length}.
                   </p>
 
-                  <div className="max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white">
+                  <div className="max-h-64 overflow-auto rounded-2xl border border-[#C9D8E4] bg-white">
                     {loadingParticipants ? (
-                      <p className="p-4 text-sm font-bold text-slate-500">
+                      <p className="p-4 text-sm font-bold text-[#536271]">
                         Loading...
                       </p>
                     ) : filteredParticipants.length === 0 ? (
-                      <p className="p-4 text-sm font-bold text-slate-500">
+                      <p className="p-4 text-sm font-bold text-[#536271]">
                         No participants.
                       </p>
                     ) : (
-                      <div className="divide-y divide-slate-100">
+                      <div className="divide-y divide-[#EAF2F8]">
                         {filteredParticipants.map((participant) => (
                           <label
                             key={participant.id}
-                            className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-[#FFF7F2]"
+                            className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-[#06324A] hover:bg-[#EAF2F8]"
                           >
                             <span>
                               <input
@@ -1101,7 +1149,7 @@ export default function EducationLibraryPage() {
                               {participantLabel(participant)}
                             </span>
 
-                            <span className="text-xs text-slate-500">
+                            <span className="text-xs text-[#536271]">
                               {participant.phone_number ?? "—"} ·{" "}
                               {participant.metadata?.preferred_channel ?? "app"}
                             </span>
@@ -1114,18 +1162,20 @@ export default function EducationLibraryPage() {
               ) : null}
 
               {assignmentMode === "all" ? (
-                <p className="mt-3 text-xs font-bold text-orange-800">
+                <p className="mt-3 text-xs font-bold text-[#06324A]">
                   All loaded active participants: {activeParticipants.length}
                 </p>
               ) : null}
             </div>
 
-            <PrimaryButton
+            <button
+              type="button"
               disabled={assigning || !selectedItem}
               onClick={assignEducation}
+              className={primaryButtonClass}
             >
               {assigning ? "Assigning..." : "Assign education"}
-            </PrimaryButton>
+            </button>
           </div>
         </CompactCard>
       </div>

@@ -3,6 +3,10 @@ import { createServerClient } from "@supabase/ssr";
 
 function isPublicApiRoute(pathname: string) {
   return (
+    pathname === "/api/cron/send-due" ||
+    pathname.startsWith("/api/cron/") ||
+    pathname === "/api/heartbeat" ||
+    pathname.startsWith("/api/heartbeat") ||
     pathname === "/api/communication/send-due" ||
     pathname === "/api/scheduler/run-due" ||
     pathname === "/api/communication/fallback/process" ||
@@ -44,8 +48,8 @@ export async function updateSession(request: NextRequest) {
   /*
     Important:
     Public API routes are not browser pages. They should not be redirected
-    to /login. Routes like /api/communication/send-due are still protected
-    by their own cron secret header.
+    to /login. Routes like /api/cron/send-due and /api/communication/send-due
+    are still protected by their own cron secret header.
   */
   if (isPublicApiRoute(pathname)) {
     return response;

@@ -5,13 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import {
-  CompactCard,
   FieldLabel,
-  LinkButton,
   Notice,
-  PageHeader,
   PageShell,
-  PrimaryButton,
   SelectInput,
   TextInput,
 } from "@/components/comconnect-ui/DashboardUI";
@@ -211,6 +207,65 @@ function normaliseChannel(value?: string | null): Channel {
   return "app";
 }
 
+function PageLinkButton({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-full border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] shadow-sm transition hover:border-[#0A5278] hover:bg-[#0A5278] hover:text-white"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function SecondaryButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded-full border border-[#C9D8E4] bg-white px-5 py-3 text-sm font-black text-[#06324A] transition hover:border-[#0A5278] hover:bg-[#EAF2F8] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PrimaryBlueButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded-full bg-[#0A5278] px-5 py-3 text-sm font-black text-white transition hover:bg-[#063E5E] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
 function SchedulerPageContent() {
   const searchParams = useSearchParams();
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
@@ -270,7 +325,9 @@ function SchedulerPageContent() {
   const activeProjectId = cleanText(context?.active_project_id);
 
   const activeParticipants = useMemo(() => {
-    return participants.filter((participant) => participant.status !== "archived");
+    return participants.filter(
+      (participant) => participant.status !== "archived"
+    );
   }, [participants]);
 
   const filteredParticipants = useMemo(() => {
@@ -399,7 +456,9 @@ function SchedulerPageContent() {
         exactMatch.media_url ||
         exactMatch.media_type
       ) {
-        setMessageMediaNote(`Media attached: ${exactMatch.media_type ?? "media"}.`);
+        setMessageMediaNote(
+          `Media attached: ${exactMatch.media_type ?? "media"}.`
+        );
       } else {
         setMessageMediaNote("");
       }
@@ -554,7 +613,10 @@ function SchedulerPageContent() {
       return;
     }
 
-    if ((recipientMode === "selected" || recipientMode === "all") && !participantId) {
+    if (
+      (recipientMode === "selected" || recipientMode === "all") &&
+      !participantId
+    ) {
       const countLabel =
         recipientMode === "all"
           ? "up to 500 active participants"
@@ -566,7 +628,10 @@ function SchedulerPageContent() {
     setBusy(true);
 
     try {
-      if ((recipientMode === "selected" || recipientMode === "all") && !participantId) {
+      if (
+        (recipientMode === "selected" || recipientMode === "all") &&
+        !participantId
+      ) {
         const body =
           recipientMode === "all"
             ? {
@@ -712,7 +777,7 @@ function SchedulerPageContent() {
         throw new Error(json?.error ?? "Bulk schedule upload failed.");
       }
 
-      setNote(`Bulk upload complete. Inserted ${json.data?.inserted_count ?? 0}.`);
+      setNote(`Import complete. Inserted ${json.data?.inserted_count ?? 0}.`);
       await loadSchedules();
     } catch (error: any) {
       setNote(error?.message ?? "Bulk schedule upload failed.");
@@ -825,7 +890,9 @@ function SchedulerPageContent() {
     if (
       !window.confirm(
         `Archive schedule ${row.message_code ?? ""} for ${
-          row.participant_code ?? row.participants?.participant_code ?? "participant"
+          row.participant_code ??
+          row.participants?.participant_code ??
+          "participant"
         }?`
       )
     ) {
@@ -854,548 +921,610 @@ function SchedulerPageContent() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Core Communication"
-        title="Scheduler"
-        subtitle="Create, edit and process scheduled project messages."
-        actions={
-          <>
-            <LinkButton href="/participants">Participants</LinkButton>
-            <LinkButton href="/messages">Messages</LinkButton>
-            <LinkButton href="/media-library">Media</LinkButton>
-          </>
-        }
-      />
-
-      {note ? <Notice tone="warning">{note}</Notice> : null}
-
-      <div className="mb-4 grid gap-3 md:grid-cols-3">
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Organisation
+      <div className="space-y-5">
+        <section className="rounded-[2rem] bg-[#032A3D] p-6 text-white shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-[#28A9E0]">
+            Core Communication
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {context?.organisation_name ?? "Loading..."}
-          </p>
-        </CompactCard>
 
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Project</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {context?.active_project_name ?? "Loading..."}
-          </p>
-        </CompactCard>
-
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Queue
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {schedules.length} loaded
-          </p>
-        </CompactCard>
-      </div>
-
-      {participantId || participantCode ? (
-        <CompactCard title="Selected participant">
-          {loadingParticipant ? (
-            <p className="text-sm font-bold text-slate-600">Loading...</p>
-          ) : selectedParticipant ? (
-            <div className="grid gap-2 text-sm font-bold text-slate-700 md:grid-cols-4">
-              <p>Code: {selectedParticipant.participant_code}</p>
-              <p>Name: {participantName(selectedParticipant)}</p>
-              <p>Phone: {selectedParticipant.phone_number ?? "—"}</p>
-              <p>
-                Channel: {selectedParticipant.metadata?.preferred_channel ?? "app"}
+          <div className="mt-4 grid gap-5 lg:grid-cols-[1.4fr_0.6fr] lg:items-end">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                Scheduler
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-white/80">
+                Create, edit and process scheduled project messages.
               </p>
             </div>
-          ) : (
-            <p className="text-sm font-bold text-slate-600">
-              Participant: {participantCode ?? participantId}
-            </p>
-          )}
-        </CompactCard>
-      ) : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
-        <CompactCard
-          title="Create schedule"
-          action={
-            <>
-              <input
-                ref={bulkInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void handleBulkScheduleFile(file);
-                }}
-              />
-              <PrimaryButton
-                disabled={bulkBusy || !activeProjectId}
-                onClick={() => bulkInputRef.current?.click()}
-              >
-                {bulkBusy ? "Uploading..." : "Bulk upload"}
-              </PrimaryButton>
-            </>
-          }
-        >
-          <div className="mb-4 rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3">
-            <p className="text-xs font-black uppercase text-slate-500">
-              Recipients
-            </p>
-
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
-              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
-                <input
-                  type="radio"
-                  checked={recipientMode === "one"}
-                  onChange={() => setRecipientMode("one")}
-                  disabled={!!participantId}
-                />
-                One
-              </label>
-
-              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
-                <input
-                  type="radio"
-                  checked={recipientMode === "selected"}
-                  onChange={() => setRecipientMode("selected")}
-                  disabled={!!participantId}
-                />
-                Selected
-              </label>
-
-              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
-                <input
-                  type="radio"
-                  checked={recipientMode === "all"}
-                  onChange={() => setRecipientMode("all")}
-                  disabled={!!participantId}
-                />
-                All active
-              </label>
+            <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60">
+                Active project
+              </p>
+              <p className="mt-2 text-xl font-black text-white">
+                {context?.active_project_name ?? "Loading..."}
+              </p>
+              <p className="mt-2 text-xs font-semibold leading-5 text-white/70">
+                {context?.organisation_name ?? "Loading organisation..."}
+              </p>
             </div>
+          </div>
+        </section>
 
-            {!participantId && recipientMode === "one" ? (
-              <div className="mt-3">
-                <FieldLabel label="Participant">
-                  <SelectInput
-                    value={manualParticipantId}
-                    onChange={(event) => setManualParticipantId(event.target.value)}
-                  >
-                    <option value="">Select participant</option>
-                    {activeParticipants.map((participant) => (
-                      <option key={participant.id} value={participant.id}>
-                        {participant.participant_code}
-                        {participant.phone_number
-                          ? ` - ${participant.phone_number}`
-                          : ""}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FieldLabel>
-              </div>
-            ) : null}
+        <div className="flex flex-wrap gap-2">
+          <PageLinkButton href="/dashboard">Dashboard</PageLinkButton>
+          <PageLinkButton href="/messages">Messages</PageLinkButton>
+          <PageLinkButton href="/delivery-logs">Delivery Logs</PageLinkButton>
+          <PageLinkButton href="/participants">Participants</PageLinkButton>
+        </div>
 
-            {!participantId && recipientMode === "selected" ? (
-              <div className="mt-3 space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <TextInput
-                    value={participantSearch}
-                    onChange={(event) => setParticipantSearch(event.target.value)}
-                    placeholder="Search participants"
-                    className="min-w-[260px] flex-1"
-                  />
+        {note ? <Notice tone="warning">{note}</Notice> : null}
 
-                  <button
-                    type="button"
-                    onClick={selectFilteredParticipants}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                  >
-                    Select filtered
-                  </button>
+        <section className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Organisation
+            </p>
+            <p className="mt-2 text-sm font-black text-[#06324A]">
+              {context?.organisation_name ?? "Loading..."}
+            </p>
+          </div>
 
-                  <button
-                    type="button"
-                    onClick={clearSelectedParticipants}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                  >
-                    Clear
-                  </button>
-                </div>
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Project
+            </p>
+            <p className="mt-2 text-sm font-black text-[#06324A]">
+              {context?.active_project_name ?? "Loading..."}
+            </p>
+          </div>
 
-                <p className="text-xs font-bold text-slate-500">
-                  Showing {filteredParticipants.length}. Selected:{" "}
-                  {selectedParticipantIds.length}.
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Queue
+            </p>
+            <p className="mt-2 text-sm font-black text-[#06324A]">
+              {schedules.length} loaded
+            </p>
+          </div>
+        </section>
+
+        {participantId || participantCode ? (
+          <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Selected participant
+            </p>
+
+            {loadingParticipant ? (
+              <p className="mt-3 text-sm font-bold text-[#536271]">
+                Loading...
+              </p>
+            ) : selectedParticipant ? (
+              <div className="mt-4 grid gap-2 text-sm font-bold text-[#536271] md:grid-cols-4">
+                <p>Code: {selectedParticipant.participant_code}</p>
+                <p>Name: {participantName(selectedParticipant)}</p>
+                <p>Phone: {selectedParticipant.phone_number ?? "—"}</p>
+                <p>
+                  Channel:{" "}
+                  {selectedParticipant.metadata?.preferred_channel ?? "app"}
                 </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm font-bold text-[#536271]">
+                Participant: {participantCode ?? participantId}
+              </p>
+            )}
+          </section>
+        ) : null}
 
-                <div className="max-h-56 overflow-auto rounded-2xl border border-slate-200 bg-white">
-                  {loadingParticipants ? (
-                    <p className="p-4 text-sm font-bold text-slate-500">
-                      Loading...
-                    </p>
-                  ) : filteredParticipants.length === 0 ? (
-                    <p className="p-4 text-sm font-bold text-slate-500">
-                      No participants.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-slate-100">
-                      {filteredParticipants.map((participant) => (
-                        <label
-                          key={participant.id}
-                          className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-[#FFF7F2]"
-                        >
-                          <span>
-                            <input
-                              type="checkbox"
-                              className="mr-3"
-                              checked={selectedParticipantIds.includes(
-                                participant.id
-                              )}
-                              onChange={() =>
-                                toggleSelectedParticipant(participant.id)
-                              }
-                            />
-                            {participant.participant_code}
-                          </span>
-                          <span className="text-xs text-slate-500">
-                            {participant.phone_number ?? "—"} ·{" "}
-                            {participant.metadata?.preferred_channel ?? "app"}
-                          </span>
-                        </label>
+        <section className="grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                  Schedule actions
+                </p>
+                <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+                  Create or import schedule
+                </h2>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={bulkInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleBulkScheduleFile(file);
+                  }}
+                />
+
+                <SecondaryButton
+                  disabled={bulkBusy || !activeProjectId}
+                  onClick={() => bulkInputRef.current?.click()}
+                >
+                  {bulkBusy ? "Importing..." : "Import schedules"}
+                </SecondaryButton>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                Recipients
+              </p>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
+                  <input
+                    type="radio"
+                    checked={recipientMode === "one"}
+                    onChange={() => setRecipientMode("one")}
+                    disabled={!!participantId}
+                  />
+                  One
+                </label>
+
+                <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
+                  <input
+                    type="radio"
+                    checked={recipientMode === "selected"}
+                    onChange={() => setRecipientMode("selected")}
+                    disabled={!!participantId}
+                  />
+                  Selected
+                </label>
+
+                <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
+                  <input
+                    type="radio"
+                    checked={recipientMode === "all"}
+                    onChange={() => setRecipientMode("all")}
+                    disabled={!!participantId}
+                  />
+                  All active
+                </label>
+              </div>
+
+              {!participantId && recipientMode === "one" ? (
+                <div className="mt-3">
+                  <FieldLabel label="Participant">
+                    <SelectInput
+                      value={manualParticipantId}
+                      onChange={(event) =>
+                        setManualParticipantId(event.target.value)
+                      }
+                    >
+                      <option value="">Select participant</option>
+                      {activeParticipants.map((participant) => (
+                        <option key={participant.id} value={participant.id}>
+                          {participant.participant_code}
+                          {participant.phone_number
+                            ? ` - ${participant.phone_number}`
+                            : ""}
+                        </option>
                       ))}
-                    </div>
-                  )}
+                    </SelectInput>
+                  </FieldLabel>
                 </div>
+              ) : null}
+
+              {!participantId && recipientMode === "selected" ? (
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <TextInput
+                      value={participantSearch}
+                      onChange={(event) =>
+                        setParticipantSearch(event.target.value)
+                      }
+                      placeholder="Search participants"
+                      className="min-w-[260px] flex-1"
+                    />
+
+                    <SecondaryButton onClick={selectFilteredParticipants}>
+                      Select filtered
+                    </SecondaryButton>
+
+                    <SecondaryButton onClick={clearSelectedParticipants}>
+                      Clear
+                    </SecondaryButton>
+                  </div>
+
+                  <p className="text-xs font-bold text-[#536271]">
+                    Showing {filteredParticipants.length}. Selected:{" "}
+                    {selectedParticipantIds.length}.
+                  </p>
+
+                  <div className="max-h-56 overflow-auto rounded-2xl border border-[#C9D8E4] bg-white">
+                    {loadingParticipants ? (
+                      <p className="p-4 text-sm font-bold text-[#536271]">
+                        Loading...
+                      </p>
+                    ) : filteredParticipants.length === 0 ? (
+                      <p className="p-4 text-sm font-bold text-[#536271]">
+                        No participants.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-[#EAF2F8]">
+                        {filteredParticipants.map((participant) => (
+                          <label
+                            key={participant.id}
+                            className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-[#536271] hover:bg-[#F7FBFD]"
+                          >
+                            <span>
+                              <input
+                                type="checkbox"
+                                className="mr-3"
+                                checked={selectedParticipantIds.includes(
+                                  participant.id
+                                )}
+                                onChange={() =>
+                                  toggleSelectedParticipant(participant.id)
+                                }
+                              />
+                              {participant.participant_code}
+                            </span>
+                            <span className="text-xs text-[#536271]">
+                              {participant.phone_number ?? "—"} ·{" "}
+                              {participant.metadata?.preferred_channel ?? "app"}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              {recipientMode === "one" && currentManualParticipant ? (
+                <p className="mt-3 text-xs font-bold text-[#536271]">
+                  Recipient: {currentManualParticipant.participant_code}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <FieldLabel label="Message code">
+                <TextInput
+                  value={messageCode}
+                  onChange={(event) => setMessageCode(event.target.value)}
+                  placeholder="HTN-W01-MON"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Message title">
+                <TextInput
+                  value={messageTitle}
+                  onChange={(event) => setMessageTitle(event.target.value)}
+                  placeholder="Short title"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Schedule date/time">
+                <TextInput
+                  type="datetime-local"
+                  value={scheduleAt}
+                  onChange={(event) => setScheduleAt(event.target.value)}
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Channel">
+                <SelectInput
+                  value={channel}
+                  onChange={(event) =>
+                    setChannel(event.target.value as Channel)
+                  }
+                >
+                  <option value="app">App / Push</option>
+                  <option value="sms">SMS</option>
+                  <option value="voice">Voice</option>
+                  <option value="whatsapp">WhatsApp</option>
+                </SelectInput>
+              </FieldLabel>
+
+              <FieldLabel label="Priority">
+                <SelectInput
+                  value={priority}
+                  onChange={(event) => setPriority(event.target.value)}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </SelectInput>
+              </FieldLabel>
+
+              <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
+                <input
+                  type="checkbox"
+                  checked={respectQuietTime}
+                  onChange={(event) =>
+                    setRespectQuietTime(event.target.checked)
+                  }
+                />
+                Respect quiet time
+              </label>
+            </div>
+
+            <textarea
+              value={messageBody}
+              onChange={(event) => setMessageBody(event.target.value)}
+              placeholder="Message body"
+              className="mt-3 min-h-28 w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
+            />
+
+            {messageMediaNote ? (
+              <div className="mt-3">
+                <Notice tone="info">{messageMediaNote}</Notice>
               </div>
             ) : null}
 
-            {recipientMode === "one" && currentManualParticipant ? (
-              <p className="mt-3 text-xs font-bold text-slate-600">
-                Recipient: {currentManualParticipant.participant_code}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <FieldLabel label="Message code">
-              <TextInput
-                value={messageCode}
-                onChange={(event) => setMessageCode(event.target.value)}
-                placeholder="HTN-W01-MON"
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Message title">
-              <TextInput
-                value={messageTitle}
-                onChange={(event) => setMessageTitle(event.target.value)}
-                placeholder="Short title"
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Schedule date/time">
-              <TextInput
-                type="datetime-local"
-                value={scheduleAt}
-                onChange={(event) => setScheduleAt(event.target.value)}
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Channel">
-              <SelectInput
-                value={channel}
-                onChange={(event) => setChannel(event.target.value as Channel)}
+            <div className="mt-4">
+              <PrimaryBlueButton
+                disabled={busy || !activeProjectId}
+                onClick={() => createManualSchedule()}
               >
-                <option value="app">App / Push</option>
-                <option value="sms">SMS</option>
-                <option value="voice">Voice</option>
-                <option value="whatsapp">WhatsApp</option>
-              </SelectInput>
-            </FieldLabel>
-
-            <FieldLabel label="Priority">
-              <SelectInput
-                value={priority}
-                onChange={(event) => setPriority(event.target.value)}
-              >
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </SelectInput>
-            </FieldLabel>
-
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
-              <input
-                type="checkbox"
-                checked={respectQuietTime}
-                onChange={(event) => setRespectQuietTime(event.target.checked)}
-              />
-              Respect quiet time
-            </label>
-          </div>
-
-          <textarea
-            value={messageBody}
-            onChange={(event) => setMessageBody(event.target.value)}
-            placeholder="Message body"
-            className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
-
-          {messageMediaNote ? (
-            <Notice tone="info">{messageMediaNote}</Notice>
-          ) : null}
-
-          <div className="mt-4">
-            <PrimaryButton disabled={busy || !activeProjectId} onClick={() => createManualSchedule()}>
-              {busy ? "Creating..." : "Create schedule"}
-            </PrimaryButton>
-          </div>
-        </CompactCard>
-
-        <CompactCard
-          title="Schedule queue"
-          action={
-            <div className="flex flex-wrap gap-2">
-              <SelectInput
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="w-auto"
-              >
-                <option value="">All</option>
-                <option value="pending">Pending</option>
-                <option value="queued">Queued</option>
-                <option value="sending">Sending</option>
-                <option value="sent">Sent</option>
-                <option value="failed">Failed</option>
-                <option value="retry_pending">Retry pending</option>
-                <option value="fallback_pending">Fallback pending</option>
-                <option value="manual_follow_up">Manual follow-up</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="archived">Archived</option>
-              </SelectInput>
-
-              <button
-                type="button"
-                onClick={runDueMessagesNow}
-                disabled={runDueBusy}
-                className="rounded-xl bg-[#F26A21] px-3 py-2 text-xs font-black text-white disabled:opacity-60"
-              >
-                {runDueBusy ? "Running..." : "Run due"}
-              </button>
-
-              <button
-                type="button"
-                onClick={loadSchedules}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-              >
-                Refresh
-              </button>
+                {busy ? "Creating..." : "Create schedule"}
+              </PrimaryBlueButton>
             </div>
-          }
-        >
-          <div className="overflow-hidden rounded-2xl border border-orange-100">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-[#FFF7F2]">
-                  <tr>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Participant
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Message
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Channel
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Time
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Status
-                    </th>
-                    <th className="px-3 py-3 text-left font-black text-slate-700">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
+          </div>
 
-                <tbody className="divide-y divide-slate-100">
-                  {loadingSchedules ? (
+          <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                  Schedule queue
+                </p>
+                <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+                  Scheduled messages
+                </h2>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <SelectInput
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="w-auto"
+                >
+                  <option value="">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="queued">Queued</option>
+                  <option value="sending">Sending</option>
+                  <option value="sent">Sent</option>
+                  <option value="failed">Failed</option>
+                  <option value="retry_pending">Retry pending</option>
+                  <option value="fallback_pending">Fallback pending</option>
+                  <option value="manual_follow_up">Manual follow-up</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="archived">Archived</option>
+                </SelectInput>
+
+                <PrimaryBlueButton
+                  disabled={runDueBusy}
+                  onClick={runDueMessagesNow}
+                >
+                  {runDueBusy ? "Running..." : "Run due"}
+                </PrimaryBlueButton>
+
+                <SecondaryButton onClick={loadSchedules}>Refresh</SecondaryButton>
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-2xl border border-[#C9D8E4]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[#C9D8E4] text-sm">
+                  <thead className="bg-[#EAF2F8]">
                     <tr>
-                      <td
-                        colSpan={6}
-                        className="px-3 py-8 text-sm font-bold text-slate-500"
-                      >
-                        Loading...
-                      </td>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Participant
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Message
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Channel
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Time
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Status
+                      </th>
+                      <th className="px-3 py-3 text-left font-black text-[#06324A]">
+                        Actions
+                      </th>
                     </tr>
-                  ) : schedules.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-3 py-8 text-sm font-bold text-slate-500"
-                      >
-                        No schedules.
-                      </td>
-                    </tr>
-                  ) : (
-                    schedules.map((row) => (
-                      <tr key={row.id} className="hover:bg-[#FFF7F2]">
-                        <td className="px-3 py-3 font-bold text-slate-700">
-                          {row.participant_code ??
-                            row.participants?.participant_code ??
-                            "—"}
-                        </td>
+                  </thead>
 
-                        <td className="px-3 py-3 text-slate-700">
-                          <p className="font-black">{row.message_code ?? "—"}</p>
-                          <p className="text-xs font-semibold text-slate-500">
-                            {row.message_title ?? "—"}
-                          </p>
-                        </td>
-
-                        <td className="px-3 py-3 font-bold text-slate-700">
-                          {row.resolved_channel ?? row.requested_channel ?? "—"}
-                          <span className="text-xs text-slate-400">
-                            {row.provider ? ` (${row.provider})` : ""}
-                          </span>
-                        </td>
-
-                        <td className="px-3 py-3 font-bold text-slate-700">
-                          {dt(row.scheduled_for)}
-                        </td>
-
-                        <td className="px-3 py-3 font-black text-slate-700">
-                          {row.status ?? "—"}
-                          {row.last_error ? (
-                            <p className="mt-1 text-xs font-bold text-red-600">
-                              {row.last_error}
-                            </p>
-                          ) : null}
-                        </td>
-
-                        <td className="px-3 py-3">
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => startEditSchedule(row)}
-                              disabled={
-                                row.status === "sent" ||
-                                row.status === "archived"
-                              }
-                              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21] disabled:opacity-50"
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => archiveSchedule(row)}
-                              disabled={row.status === "archived"}
-                              className="rounded-lg border border-slate-200 bg-[#FFF7F2] px-2 py-1 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21] disabled:opacity-50"
-                            >
-                              Archive
-                            </button>
-                          </div>
+                  <tbody className="divide-y divide-[#EAF2F8]">
+                    {loadingSchedules ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-3 py-8 text-sm font-bold text-[#536271]"
+                        >
+                          Loading...
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : schedules.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-3 py-8 text-sm font-bold text-[#536271]"
+                        >
+                          No schedules.
+                        </td>
+                      </tr>
+                    ) : (
+                      schedules.map((row) => (
+                        <tr key={row.id} className="hover:bg-[#F7FBFD]">
+                          <td className="px-3 py-3 font-bold text-[#536271]">
+                            {row.participant_code ??
+                              row.participants?.participant_code ??
+                              "—"}
+                          </td>
+
+                          <td className="px-3 py-3 text-[#536271]">
+                            <p className="font-black text-[#06324A]">
+                              {row.message_code ?? "—"}
+                            </p>
+                            <p className="text-xs font-semibold text-[#536271]">
+                              {row.message_title ?? "—"}
+                            </p>
+                          </td>
+
+                          <td className="px-3 py-3 font-bold text-[#536271]">
+                            {row.resolved_channel ??
+                              row.requested_channel ??
+                              "—"}
+                            <span className="text-xs text-[#536271]">
+                              {row.provider ? ` (${row.provider})` : ""}
+                            </span>
+                          </td>
+
+                          <td className="px-3 py-3 font-bold text-[#536271]">
+                            {dt(row.scheduled_for)}
+                          </td>
+
+                          <td className="px-3 py-3 font-black text-[#536271]">
+                            {row.status ?? "—"}
+                            {row.last_error ? (
+                              <p className="mt-1 text-xs font-bold text-red-600">
+                                {row.last_error}
+                              </p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-3 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEditSchedule(row)}
+                                disabled={
+                                  row.status === "sent" ||
+                                  row.status === "archived"
+                                }
+                                className="rounded-lg border border-[#C9D8E4] bg-white px-2 py-1 text-xs font-black text-[#06324A] transition hover:border-[#0A5278] hover:bg-[#EAF2F8] disabled:opacity-50"
+                              >
+                                Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => archiveSchedule(row)}
+                                disabled={row.status === "archived"}
+                                className="rounded-lg border border-[#C9D8E4] bg-white px-2 py-1 text-xs font-black text-[#06324A] transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                              >
+                                Archive
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </CompactCard>
+        </section>
+
+        {editingSchedule ? (
+          <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+              Edit schedule
+            </p>
+            <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+              Update scheduled message
+            </h2>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <FieldLabel label="Message code">
+                <TextInput
+                  value={editMessageCode}
+                  onChange={(event) => setEditMessageCode(event.target.value)}
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Message title">
+                <TextInput
+                  value={editMessageTitle}
+                  onChange={(event) => setEditMessageTitle(event.target.value)}
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Schedule date/time">
+                <TextInput
+                  type="datetime-local"
+                  value={editScheduleAt}
+                  onChange={(event) => setEditScheduleAt(event.target.value)}
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Channel">
+                <SelectInput
+                  value={editChannel}
+                  onChange={(event) =>
+                    setEditChannel(event.target.value as Channel)
+                  }
+                >
+                  <option value="app">App / Push</option>
+                  <option value="sms">SMS</option>
+                  <option value="voice">Voice</option>
+                  <option value="whatsapp">WhatsApp</option>
+                </SelectInput>
+              </FieldLabel>
+
+              <FieldLabel label="Priority">
+                <SelectInput
+                  value={editPriority}
+                  onChange={(event) => setEditPriority(event.target.value)}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </SelectInput>
+              </FieldLabel>
+
+              <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
+                <input
+                  type="checkbox"
+                  checked={editRespectQuietTime}
+                  onChange={(event) =>
+                    setEditRespectQuietTime(event.target.checked)
+                  }
+                />
+                Respect quiet time
+              </label>
+
+              <PrimaryBlueButton
+                disabled={editBusy}
+                onClick={saveEditedSchedule}
+              >
+                {editBusy ? "Saving..." : "Save changes"}
+              </PrimaryBlueButton>
+
+              <SecondaryButton onClick={() => setEditingSchedule(null)}>
+                Cancel
+              </SecondaryButton>
+            </div>
+
+            <textarea
+              value={editMessageBody}
+              onChange={(event) => setEditMessageBody(event.target.value)}
+              placeholder="Message body"
+              className="mt-3 min-h-28 w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
+            />
+          </section>
+        ) : null}
       </div>
-
-      {editingSchedule ? (
-        <CompactCard title="Edit schedule">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <FieldLabel label="Message code">
-              <TextInput
-                value={editMessageCode}
-                onChange={(event) => setEditMessageCode(event.target.value)}
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Message title">
-              <TextInput
-                value={editMessageTitle}
-                onChange={(event) => setEditMessageTitle(event.target.value)}
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Schedule date/time">
-              <TextInput
-                type="datetime-local"
-                value={editScheduleAt}
-                onChange={(event) => setEditScheduleAt(event.target.value)}
-              />
-            </FieldLabel>
-
-            <FieldLabel label="Channel">
-              <SelectInput
-                value={editChannel}
-                onChange={(event) => setEditChannel(event.target.value as Channel)}
-              >
-                <option value="app">App / Push</option>
-                <option value="sms">SMS</option>
-                <option value="voice">Voice</option>
-                <option value="whatsapp">WhatsApp</option>
-              </SelectInput>
-            </FieldLabel>
-
-            <FieldLabel label="Priority">
-              <SelectInput
-                value={editPriority}
-                onChange={(event) => setEditPriority(event.target.value)}
-              >
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </SelectInput>
-            </FieldLabel>
-
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
-              <input
-                type="checkbox"
-                checked={editRespectQuietTime}
-                onChange={(event) => setEditRespectQuietTime(event.target.checked)}
-              />
-              Respect quiet time
-            </label>
-
-            <PrimaryButton disabled={editBusy} onClick={saveEditedSchedule}>
-              {editBusy ? "Saving..." : "Save changes"}
-            </PrimaryButton>
-
-            <button
-              type="button"
-              onClick={() => setEditingSchedule(null)}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
-            >
-              Cancel
-            </button>
-          </div>
-
-          <textarea
-            value={editMessageBody}
-            onChange={(event) => setEditMessageBody(event.target.value)}
-            placeholder="Message body"
-            className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
-          />
-        </CompactCard>
-      ) : null}
     </PageShell>
   );
 }
 
 export default function SchedulerPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-[#EEF3FB] p-4 md:p-6" />}>
+    <Suspense fallback={<main className="min-h-screen bg-[#EAF2F8] p-4 md:p-6" />}>
       <SchedulerPageContent />
     </Suspense>
   );

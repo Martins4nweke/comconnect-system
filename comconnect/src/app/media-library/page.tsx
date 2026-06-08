@@ -5,12 +5,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   CompactCard,
   FieldLabel,
-  LinkButton,
   Notice,
-  PageHeader,
   PageShell,
-  PrimaryButton,
-  SecondaryButton,
   SelectInput,
   StatusPill,
   TextInput,
@@ -52,6 +48,15 @@ const mediaTypes = [
   { value: "image", label: "Image" },
   { value: "document", label: "Document" },
 ];
+
+const pageLinkClass =
+  "rounded-2xl border border-[#C9D8E4] bg-white px-4 py-2 text-sm font-black text-[#06324A] shadow-sm hover:border-[#0A5278] hover:text-[#0A5278]";
+
+const primaryButtonClass =
+  "rounded-2xl bg-[#0A5278] px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-[#06324A] disabled:cursor-not-allowed disabled:opacity-50";
+
+const secondaryButtonClass =
+  "rounded-xl border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] hover:border-[#0A5278] hover:text-[#0A5278] disabled:cursor-not-allowed disabled:opacity-50";
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
@@ -394,43 +399,60 @@ export default function MediaLibraryPage() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Core Communication"
-        title="Media Library"
-        subtitle="Upload media, generate URLs, preview files and reuse them in messages."
-        actions={
-          <>
-            <LinkButton href="/messages">Message Library</LinkButton>
-            <LinkButton href="/">Dashboard</LinkButton>
-          </>
-        }
-      />
+      <section className="mb-5 rounded-[2rem] border border-[#C9D8E4] bg-[#032A3D] p-6 text-white shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C9D8E4]">
+          Core communication
+        </p>
+
+        <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight">
+              Media Library
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EAF2F8]">
+              Upload media, generate URLs, preview files and reuse them in
+              messages.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link href="/" className={pageLinkClass}>
+              Dashboard
+            </Link>
+            <Link href="/messages" className={pageLinkClass}>
+              Messages
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {errorMessage ? <Notice tone="danger">{errorMessage}</Notice> : null}
       {note ? <Notice tone="success">{note}</Notice> : null}
 
       <div className="mb-4 grid gap-3 md:grid-cols-3">
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
+          <p className="text-xs font-black uppercase text-[#536271]">
             Organisation
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {loadingContext ? "Loading..." : context?.organisation_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Project</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="text-xs font-black uppercase text-[#536271]">
+            Project
+          </p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {loadingContext ? "Loading..." : context?.active_project_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
+          <p className="text-xs font-black uppercase text-[#536271]">
             Generated URLs
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {assets.length}
           </p>
         </CompactCard>
@@ -494,12 +516,12 @@ export default function MediaLibraryPage() {
                 onChange={(event) =>
                   setSelectedFile(event.target.files?.[0] ?? null)
                 }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-black file:text-white focus:border-[#F26A21]"
+                className="w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none file:mr-3 file:rounded-xl file:border-0 file:bg-[#0A5278] file:px-3 file:py-2 file:text-xs file:font-black file:text-white focus:border-[#0A5278]"
                 required
               />
 
               {selectedFile ? (
-                <p className="mt-2 text-xs font-bold text-slate-500">
+                <p className="mt-2 text-xs font-bold text-[#536271]">
                   Selected: {selectedFile.name} ·{" "}
                   {formatBytes(selectedFile.size)}
                 </p>
@@ -510,10 +532,10 @@ export default function MediaLibraryPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Short note about where this media should be used."
-              className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              className="min-h-24 w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
             />
 
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700">
+            <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
               <input
                 type="checkbox"
                 checked={isApproved}
@@ -522,15 +544,16 @@ export default function MediaLibraryPage() {
               Approved for use in messages
             </label>
 
-            <PrimaryButton
+            <button
               type="submit"
               disabled={uploading || !canManage || !activeProjectId}
+              className={primaryButtonClass}
             >
               {uploading ? "Uploading..." : "Upload and generate URL"}
-            </PrimaryButton>
+            </button>
 
             {!canManage ? (
-              <p className="text-xs font-bold text-slate-500">
+              <p className="text-xs font-bold text-[#536271]">
                 Your role can view media but cannot upload or approve assets.
               </p>
             ) : null}
@@ -561,18 +584,22 @@ export default function MediaLibraryPage() {
                 ))}
               </SelectInput>
 
-              <SecondaryButton onClick={() => loadAssets(activeProjectId)}>
+              <button
+                type="button"
+                onClick={() => loadAssets(activeProjectId)}
+                className={secondaryButtonClass}
+              >
                 {loading ? "Refreshing..." : "Refresh"}
-              </SecondaryButton>
+              </button>
             </div>
           }
         >
           {loading ? (
-            <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+            <p className="rounded-2xl bg-[#EAF2F8] p-4 text-sm font-bold text-[#536271]">
               Loading media...
             </p>
           ) : filteredAssets.length === 0 ? (
-            <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+            <p className="rounded-2xl bg-[#EAF2F8] p-4 text-sm font-bold text-[#536271]">
               No generated media URLs found.
             </p>
           ) : (
@@ -580,7 +607,7 @@ export default function MediaLibraryPage() {
               {filteredAssets.map((asset) => (
                 <article
                   key={asset.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                  className="rounded-2xl border border-[#C9D8E4] bg-white p-4 shadow-sm"
                 >
                   <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
                     <div className="min-w-0 flex-1">
@@ -598,42 +625,48 @@ export default function MediaLibraryPage() {
                         ) : null}
                       </div>
 
-                      <h3 className="mt-2 text-sm font-black text-slate-950">
+                      <h3 className="mt-2 text-sm font-black text-[#06324A]">
                         {asset.title}
                       </h3>
 
-                      <p className="mt-1 text-xs font-bold text-slate-500">
+                      <p className="mt-1 text-xs font-bold text-[#536271]">
                         {asset.file_name ?? "No file name"} ·{" "}
                         {formatBytes(asset.file_size_bytes)} ·{" "}
                         {dt(asset.created_at)}
                       </p>
 
                       {asset.description ? (
-                        <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">
+                        <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-[#536271]">
                           {asset.description}
                         </p>
                       ) : null}
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <SecondaryButton onClick={() => copyUrl(asset)}>
+                      <button
+                        type="button"
+                        onClick={() => copyUrl(asset)}
+                        className={secondaryButtonClass}
+                      >
                         {copiedId === asset.id ? "Copied" : "Copy URL"}
-                      </SecondaryButton>
+                      </button>
 
                       <Link
                         href={useInMessageLink(asset)}
-                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+                        className={secondaryButtonClass}
                       >
                         Use in message
                       </Link>
 
                       {!asset.is_approved && canManage ? (
-                        <SecondaryButton
+                        <button
+                          type="button"
                           onClick={() => updateAsset(asset, "approve")}
                           disabled={busyId === asset.id}
+                          className={secondaryButtonClass}
                         >
                           Approve
-                        </SecondaryButton>
+                        </button>
                       ) : null}
 
                       {canManage ? (
@@ -641,7 +674,7 @@ export default function MediaLibraryPage() {
                           type="button"
                           onClick={() => updateAsset(asset, "archive")}
                           disabled={busyId === asset.id}
-                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Archive
                         </button>
@@ -650,7 +683,7 @@ export default function MediaLibraryPage() {
                   </div>
 
                   {asset.public_url ? (
-                    <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2">
+                    <div className="mt-3 overflow-hidden rounded-2xl border border-[#C9D8E4] bg-white p-2">
                       {asset.media_type === "video" ? (
                         <video
                           src={asset.public_url}
@@ -675,14 +708,14 @@ export default function MediaLibraryPage() {
                           href={asset.public_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block rounded-xl bg-slate-50 px-3 py-3 text-sm font-black text-[#F26A21]"
+                          className="block rounded-xl bg-[#EAF2F8] px-3 py-3 text-sm font-black text-[#0A5278]"
                         >
                           Open document
                         </a>
                       )}
 
-                      <div className="mt-2 rounded-xl bg-slate-50 p-2">
-                        <p className="break-all text-[11px] font-semibold leading-5 text-slate-600">
+                      <div className="mt-2 rounded-xl bg-[#EAF2F8] p-2">
+                        <p className="break-all text-[11px] font-semibold leading-5 text-[#536271]">
                           {asset.public_url}
                         </p>
                       </div>

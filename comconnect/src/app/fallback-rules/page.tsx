@@ -1,15 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useState, type ReactNode } from "react";
 import { LargeTableClient } from "@/components/comconnect-actions/LargeTableClient";
 import { StatusPill } from "@/components/comconnect-ui/StatusPill";
-import {
-  CompactCard,
-  LinkButton,
-  Notice,
-  PageHeader,
-  PageShell,
-} from "@/components/comconnect-ui/DashboardUI";
+import { Notice, PageShell } from "@/components/comconnect-ui/DashboardUI";
 
 type CurrentContext = {
   organisation_id?: string | null;
@@ -23,7 +18,12 @@ type CurrentContext = {
 
 function dt(value?: string | null) {
   if (!value) return "—";
-  return new Date(value).toLocaleString();
+
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return "—";
+  }
 }
 
 function text(value?: string | null, max = 80) {
@@ -34,6 +34,34 @@ function text(value?: string | null, max = 80) {
 function channelFlow(value: unknown) {
   if (!Array.isArray(value)) return "—";
   return value.map((item) => String(item)).join(" → ");
+}
+
+function PageLinkButton({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-full border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] shadow-sm transition hover:border-[#0A5278] hover:bg-[#0A5278] hover:text-white"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-5 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+        {label}
+      </p>
+      <p className="mt-2 text-sm font-black text-[#06324A]">{value}</p>
+    </section>
+  );
 }
 
 const config = {
@@ -59,10 +87,10 @@ const config = {
       label: "Rule",
       render: (r: any) => (
         <div>
-          <p className="font-black text-slate-800">
+          <p className="font-black text-[#06324A]">
             {text(r.rule_label ?? r.name, 60)}
           </p>
-          <p className="text-xs font-bold text-slate-500">
+          <p className="text-xs font-bold text-[#536271]">
             {r.trigger_event ?? "fallback"}
           </p>
         </div>
@@ -71,7 +99,11 @@ const config = {
     {
       key: "flow",
       label: "Flow",
-      render: (r: any) => channelFlow(r.channel_flow),
+      render: (r: any) => (
+        <span className="font-bold text-[#536271]">
+          {channelFlow(r.channel_flow)}
+        </span>
+      ),
     },
     {
       key: "status",
@@ -83,7 +115,9 @@ const config = {
     {
       key: "created",
       label: "Created",
-      render: (r: any) => dt(r.created_at),
+      render: (r: any) => (
+        <span className="font-bold text-[#536271]">{dt(r.created_at)}</span>
+      ),
     },
   ],
 };
@@ -122,58 +156,83 @@ export default function FallbackRulesPage() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Communication Operations"
-        title="Fallback Rules"
-        subtitle="Review and manage how ComConnect moves communication from app/push to SMS and voice when delivery fails."
-        actions={
-          <>
-            <LinkButton href="/push-queue">Push Queue</LinkButton>
-            <LinkButton href="/delivery-logs">Delivery Logs</LinkButton>
-            <LinkButton href="/communication-operations">
-              Communication Operations
-            </LinkButton>
-          </>
-        }
-      />
+      <div className="space-y-5">
+        <section className="rounded-[2rem] bg-[#032A3D] p-6 text-white shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-[#28A9E0]">
+            Communication Operations
+          </p>
 
-      {errorMessage ? <Notice tone="danger">{errorMessage}</Notice> : null}
+          <div className="mt-4 grid gap-5 lg:grid-cols-[1.4fr_0.6fr] lg:items-end">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                Fallback Rules
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-white/80">
+                Review how ComConnect moves communication from app and push to
+                SMS, WhatsApp or voice when delivery fails.
+              </p>
+            </div>
 
-      <div className="mb-4 grid gap-3 md:grid-cols-4">
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Organisation
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {loadingContext ? "Loading..." : context?.organisation_name ?? "—"}
-          </p>
-        </CompactCard>
+            <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60">
+                Active project
+              </p>
+              <p className="mt-2 text-xl font-black text-white">
+                {loadingContext
+                  ? "Loading..."
+                  : context?.active_project_name ?? "—"}
+              </p>
+              <p className="mt-2 text-xs font-semibold leading-5 text-white/70">
+                {context?.organisation_name ?? "Loading organisation..."}
+              </p>
+            </div>
+          </div>
+        </section>
 
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Project</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {loadingContext ? "Loading..." : context?.active_project_name ?? "—"}
-          </p>
-        </CompactCard>
+        <div className="flex flex-wrap gap-2">
+          <PageLinkButton href="/dashboard">Dashboard</PageLinkButton>
+          <PageLinkButton href="/scheduler">Scheduler</PageLinkButton>
+          <PageLinkButton href="/push-queue">Push Queue</PageLinkButton>
+          <PageLinkButton href="/communication-operations">
+            Communication Operations
+          </PageLinkButton>
+          <PageLinkButton href="/delivery-logs">Delivery Logs</PageLinkButton>
+        </div>
 
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
-            Project Code
-          </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {context?.active_project_code ?? "—"}
-          </p>
-        </CompactCard>
+        {errorMessage ? <Notice tone="danger">{errorMessage}</Notice> : null}
 
-        <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Role</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
-            {context?.project_role ?? context?.organisation_role ?? "—"}
-          </p>
-        </CompactCard>
+        <section className="grid gap-3 md:grid-cols-4">
+          <InfoCard
+            label="Organisation"
+            value={
+              loadingContext ? "Loading..." : context?.organisation_name ?? "—"
+            }
+          />
+
+          <InfoCard
+            label="Project"
+            value={
+              loadingContext
+                ? "Loading..."
+                : context?.active_project_name ?? "—"
+            }
+          />
+
+          <InfoCard
+            label="Project Code"
+            value={context?.active_project_code ?? "—"}
+          />
+
+          <InfoCard
+            label="Role"
+            value={context?.project_role ?? context?.organisation_role ?? "—"}
+          />
+        </section>
+
+        <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-4 shadow-sm">
+          <LargeTableClient config={config as any} />
+        </section>
       </div>
-
-      <LargeTableClient config={config as any} />
     </PageShell>
   );
 }

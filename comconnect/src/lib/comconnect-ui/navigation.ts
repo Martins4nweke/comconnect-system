@@ -183,10 +183,18 @@ export const sidebarNavigation: NavigationGroup[] = [
   {
     title: "Developer and Admin",
     items: [
-      {
+            {
         title: "Developer API",
         href: "/app-api",
         description: "Participant app and commercial API console.",
+        permission: "api:read",
+        tag: "API",
+      },
+      {
+        title: "API Use Cases",
+        href: "/api-use-cases",
+        description:
+          "Plain-language API use cases for hospitals, universities and NGOs.",
         permission: "api:read",
         tag: "API",
       },
@@ -195,20 +203,6 @@ export const sidebarNavigation: NavigationGroup[] = [
         href: "/api-keys",
         description: "Create and manage external API access.",
         permission: "api:manage",
-        tag: "API",
-      },
-      {
-        title: "Webhooks",
-        href: "/webhooks",
-        description: "Configure delivery, reply and client webhooks.",
-        permission: "webhooks:manage",
-        tag: "API",
-      },
-      {
-        title: "API Usage",
-        href: "/api-usage",
-        description: "Track API requests, limits and billing usage.",
-        permission: "api:read",
         tag: "API",
       },
       {

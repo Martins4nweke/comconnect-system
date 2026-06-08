@@ -1,17 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { LargeTableClient } from "@/components/comconnect-actions/LargeTableClient";
 import { tableConfigs } from "@/components/comconnect-actions/tableConfigs";
 import {
   CompactCard,
   FieldLabel,
-  LinkButton,
   Notice,
-  PageHeader,
   PageShell,
-  PrimaryButton,
-  SecondaryButton,
   SelectInput,
   StatusPill,
   TextInput,
@@ -69,6 +66,18 @@ const questionnaireTypes = [
   "safety_help",
   "custom_research_survey",
 ];
+
+const pageLinkClass =
+  "rounded-2xl border border-[#C9D8E4] bg-white px-4 py-2 text-sm font-black text-[#06324A] shadow-sm hover:border-[#0A5278] hover:text-[#0A5278]";
+
+const primaryButtonClass =
+  "rounded-2xl bg-[#0A5278] px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-[#06324A] disabled:cursor-not-allowed disabled:opacity-50";
+
+const secondaryButtonClass =
+  "rounded-xl border border-[#C9D8E4] bg-white px-4 py-2 text-xs font-black text-[#06324A] hover:border-[#0A5278] hover:text-[#0A5278] disabled:cursor-not-allowed disabled:opacity-50";
+
+const textareaClass =
+  "w-full rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]";
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
@@ -264,8 +273,8 @@ export default function QuestionnairesPage() {
             question_order: index + 1,
             options:
               question.question_type === "single_choice" ||
-question.question_type === "multiple_choice" ||
-question.question_type === "symptom_checklist"
+              question.question_type === "multiple_choice" ||
+              question.question_type === "symptom_checklist"
                 ? parseOptions(question.optionsText)
                 : [],
             validation: {},
@@ -297,13 +306,7 @@ question.question_type === "symptom_checklist"
           : "Questionnaire created."
       );
 
-     resetQuestionnaireForm();
-
-/*
-  Do not reload immediately.
-  Keeping the page alive preserves the new questionnaire ID
-  so it can be assigned without manual Supabase lookup.
-*/
+      resetQuestionnaireForm();
     } catch (error: any) {
       setErrorMessage(error?.message ?? "Failed to create questionnaire.");
     } finally {
@@ -377,11 +380,6 @@ question.question_type === "symptom_checklist"
 
       setDueAt("");
       setParticipantCodesText("");
-
-      /*
-  No full reload needed. The success note is enough,
-  and avoiding reload prevents state loss.
-*/
     } catch (error: any) {
       setErrorMessage(error?.message ?? "Failed to assign questionnaire.");
     } finally {
@@ -391,51 +389,72 @@ question.question_type === "symptom_checklist"
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Research"
-        title="Questionnaires"
-        subtitle="Create questionnaires, add questions and assign them to participants."
-        actions={
-          <>
-            <LinkButton href="/participants">Participants</LinkButton>
-            <LinkButton href="/research-care/research">Research</LinkButton>
-            <LinkButton href="/">Dashboard</LinkButton>
-          </>
-        }
-      />
+      <section className="mb-5 rounded-[2rem] border border-[#C9D8E4] bg-[#032A3D] p-6 text-white shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C9D8E4]">
+          Research
+        </p>
+
+        <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight">
+              Questionnaires
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EAF2F8]">
+              Create questionnaires, add questions and assign them to
+              participants.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard" className={pageLinkClass}>
+              Dashboard
+            </Link>
+
+            <Link href="/participants" className={pageLinkClass}>
+              Participants
+            </Link>
+
+            <Link href="/questionnaire-responses" className={pageLinkClass}>
+              Questionnaire Responses
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {errorMessage ? <Notice tone="danger">{errorMessage}</Notice> : null}
       {note ? <Notice tone="success">{note}</Notice> : null}
 
       <div className="mb-4 grid gap-3 md:grid-cols-4">
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
+          <p className="text-xs font-black uppercase text-[#536271]">
             Organisation
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {loadingContext ? "Loading..." : context?.organisation_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Project</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="text-xs font-black uppercase text-[#536271]">
+            Project
+          </p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {loadingContext ? "Loading..." : context?.active_project_name ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">Role</p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="text-xs font-black uppercase text-[#536271]">Role</p>
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {context?.project_role ?? context?.organisation_role ?? "—"}
           </p>
         </CompactCard>
 
         <CompactCard>
-          <p className="text-xs font-black uppercase text-slate-500">
+          <p className="text-xs font-black uppercase text-[#536271]">
             Questions
           </p>
-          <p className="mt-1 text-sm font-black text-slate-950">
+          <p className="mt-1 text-sm font-black text-[#06324A]">
             {validQuestionCount}
           </p>
         </CompactCard>
@@ -503,17 +522,17 @@ question.question_type === "symptom_checklist"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Description or instruction"
-              className="min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              className={`${textareaClass} min-h-20`}
             />
 
             <div className="space-y-3">
               {questions.map((question, index) => (
                 <div
                   key={index}
-                  className="rounded-2xl border border-orange-100 bg-[#FFF7F2] p-3"
+                  className="rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-3"
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-black text-slate-950">
+                    <h3 className="text-sm font-black text-[#06324A]">
                       Question {index + 1}
                     </h3>
 
@@ -553,7 +572,7 @@ question.question_type === "symptom_checklist"
                       ))}
                     </SelectInput>
 
-                    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black">
+                    <label className="flex items-center gap-2 rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-black text-[#06324A]">
                       <input
                         type="checkbox"
                         checked={question.required}
@@ -568,8 +587,8 @@ question.question_type === "symptom_checklist"
                   </div>
 
                   {(question.question_type === "single_choice" ||
-  question.question_type === "multiple_choice" ||
-  question.question_type === "symptom_checklist") && (
+                    question.question_type === "multiple_choice" ||
+                    question.question_type === "symptom_checklist") && (
                     <textarea
                       value={question.optionsText}
                       onChange={(event) =>
@@ -578,7 +597,7 @@ question.question_type === "symptom_checklist"
                         })
                       }
                       placeholder="Options, one per line"
-                      className="mt-3 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+                      className={`${textareaClass} mt-3 min-h-20`}
                     />
                   )}
                 </div>
@@ -586,18 +605,26 @@ question.question_type === "symptom_checklist"
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <SecondaryButton onClick={addQuestion}>Add question</SecondaryButton>
+              <button
+                type="button"
+                onClick={addQuestion}
+                className={secondaryButtonClass}
+              >
+                Add question
+              </button>
 
-              <PrimaryButton
+              <button
+                type="button"
                 onClick={createQuestionnaire}
                 disabled={creating || !canManage || !activeProjectId}
+                className={primaryButtonClass}
               >
                 {creating ? "Creating..." : "Create questionnaire"}
-              </PrimaryButton>
+              </button>
             </div>
 
             {!canManage ? (
-              <p className="text-xs font-bold text-slate-500">
+              <p className="text-xs font-bold text-[#536271]">
                 Your role can view questionnaires but cannot create or assign.
               </p>
             ) : null}
@@ -625,16 +652,20 @@ question.question_type === "symptom_checklist"
             <textarea
               value={participantCodesText}
               onChange={(event) => setParticipantCodesText(event.target.value)}
-              placeholder={"Participant codes, one per line\nDEMO-P001\nDEMO-P002"}
-              className="min-h-40 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+              placeholder={
+                "Participant codes, one per line\nDEMO-P001\nDEMO-P002"
+              }
+              className={`${textareaClass} min-h-40`}
             />
 
-            <PrimaryButton
+            <button
+              type="button"
               onClick={assignQuestionnaire}
               disabled={assigning || !canManage}
+              className={primaryButtonClass}
             >
               {assigning ? "Assigning..." : "Bulk assign"}
-            </PrimaryButton>
+            </button>
           </div>
         </CompactCard>
       </div>

@@ -1,9 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BackToParent } from "@/components/comconnect-ui/BackToParent";
-import { Breadcrumbs } from "@/components/comconnect-ui/Breadcrumbs";
-import { PageShell } from "@/components/comconnect-ui/PageShell";
 import { StatusPill } from "@/components/comconnect-ui/StatusPill";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { LargeTableConfig } from "./tableConfigs";
@@ -273,48 +270,22 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
   }
 
   return (
-    <PageShell>
-      <Breadcrumbs items={config.breadcrumbs} />
-      <BackToParent href={config.parentHref} label={config.parentLabel} />
-
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#F26A21]">
-            {config.eyebrow}
-          </p>
-          <h1 className="mt-1 text-2xl font-black text-slate-950">
-            {config.title}
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm font-semibold text-slate-600">
-            {config.subtitle}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3 shadow-sm">
-          <p className="text-xs font-black uppercase text-slate-500">
-            Project
-          </p>
-          <p className="text-sm font-black text-slate-950">
-            {context?.active_project_name ?? "Loading..."}
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-4">
       <form
         onSubmit={applyFilters}
-        className="grid gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm md:grid-cols-5"
+        className="grid gap-3 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4 md:grid-cols-5"
       >
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+          className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
           placeholder={config.searchPlaceholder}
         />
 
         <select
           value={projectId}
           onChange={(e) => void handleProjectChange(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+          className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
         >
           {projects.length === 0 ? (
             <option value="">No project</option>
@@ -330,7 +301,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+          className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
         >
           <option value="">All statuses</option>
           {config.statusOptions.map((option) => (
@@ -343,7 +314,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
         <select
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#F26A21]"
+          className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
         >
           {[25, 50, 100, 200].map((value) => (
             <option key={value} value={value}>
@@ -352,14 +323,14 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
           ))}
         </select>
 
-        <button className="rounded-xl bg-[#F26A21] px-4 py-2 text-sm font-black text-white disabled:opacity-50">
+        <button className="rounded-xl bg-[#0A5278] px-4 py-2 text-sm font-black text-white transition hover:bg-[#063E5E] disabled:opacity-50">
           Search
         </button>
       </form>
 
       {config.allowBulkActions ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
-          <span className="text-sm font-black text-slate-900">
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#C9D8E4] bg-white p-4 shadow-sm">
+          <span className="text-sm font-black text-[#06324A]">
             {selectedCount} selected
           </span>
 
@@ -367,7 +338,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
             type="button"
             onClick={askBulkArchive}
             disabled={selectedCount === 0 || busy}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-40"
+            className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] transition hover:border-[#0A5278] hover:text-[#0A5278] disabled:opacity-40"
           >
             Archive
           </button>
@@ -378,7 +349,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
               if (e.target.value) askBulkStatus(e.target.value);
               e.currentTarget.value = "";
             }}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] disabled:opacity-40"
             defaultValue=""
           >
             <option value="">Set status...</option>
@@ -393,7 +364,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
             type="button"
             onClick={() => setSelected(new Set())}
             disabled={selectedCount === 0}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-40"
+            className="rounded-xl border border-[#C9D8E4] bg-white px-3 py-2 text-sm font-bold text-[#06324A] transition hover:border-[#0A5278] hover:text-[#0A5278] disabled:opacity-40"
           >
             Clear
           </button>
@@ -406,10 +377,10 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-[#C9D8E4] bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-[#FFF7F2]">
+          <table className="min-w-full divide-y divide-[#C9D8E4] text-sm">
+            <thead className="bg-[#EAF2F8]">
               <tr>
                 {config.allowBulkActions ? (
                   <th className="w-10 px-4 py-3 text-left">
@@ -418,7 +389,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
                       checked={allVisibleSelected}
                       onChange={toggleAllVisible}
                       aria-label="Select all visible rows"
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="h-4 w-4 rounded border-[#C9D8E4]"
                     />
                   </th>
                 ) : null}
@@ -426,26 +397,26 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
                 {config.columns.map((column) => (
                   <th
                     key={column.key}
-                    className="px-4 py-3 text-left font-black text-slate-700"
+                    className="px-4 py-3 text-left font-black text-[#06324A]"
                   >
                     {column.label}
                   </th>
                 ))}
 
                 {config.allowBulkActions ? (
-                  <th className="px-4 py-3 text-left font-black text-slate-700">
+                  <th className="px-4 py-3 text-left font-black text-[#06324A]">
                     Actions
                   </th>
                 ) : null}
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[#EAF2F8]">
               {busy && rows.length === 0 ? (
                 <tr>
                   <td
                     colSpan={config.columns.length + 2}
-                    className="px-4 py-8 text-slate-500"
+                    className="px-4 py-8 text-[#536271]"
                   >
                     Loading...
                   </td>
@@ -454,14 +425,14 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
                 <tr>
                   <td
                     colSpan={config.columns.length + 2}
-                    className="px-4 py-8 text-slate-500"
+                    className="px-4 py-8 text-[#536271]"
                   >
                     No records found.
                   </td>
                 </tr>
               ) : (
                 rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-[#FFF7F2]">
+                  <tr key={row.id} className="hover:bg-[#F7FBFD]">
                     {config.allowBulkActions ? (
                       <td className="px-4 py-3">
                         <input
@@ -469,7 +440,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
                           checked={selected.has(row.id)}
                           onChange={() => toggleRow(row.id)}
                           aria-label="Select row"
-                          className="h-4 w-4 rounded border-slate-300"
+                          className="h-4 w-4 rounded border-[#C9D8E4]"
                         />
                       </td>
                     ) : null}
@@ -477,7 +448,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
                     {config.columns.map((column) => (
                       <td
                         key={column.key}
-                        className="px-4 py-3 align-top text-slate-700"
+                        className="px-4 py-3 align-top text-[#536271]"
                       >
                         {column.render(row)}
                       </td>
@@ -489,7 +460,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
                           <button
                             type="button"
                             onClick={() => askRowArchive(row.id)}
-                            className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700 hover:border-[#F26A21] hover:text-[#F26A21]"
+                            className="rounded-lg border border-[#C9D8E4] bg-white px-2 py-1 text-xs font-bold text-[#06324A] transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
                           >
                             Archive
                           </button>
@@ -502,7 +473,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
 
                               e.currentTarget.value = "";
                             }}
-                            className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                            className="rounded-lg border border-[#C9D8E4] bg-white px-2 py-1 text-xs font-bold text-[#06324A]"
                             defaultValue=""
                           >
                             <option value="">Status</option>
@@ -523,8 +494,8 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
-        <div className="text-sm font-bold text-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C9D8E4] bg-white p-4 shadow-sm">
+        <div className="text-sm font-bold text-[#536271]">
           Showing up to {limit} records
         </div>
 
@@ -533,7 +504,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
             type="button"
             onClick={previousPage}
             disabled={cursorStack.length <= 1 || busy}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold disabled:opacity-40"
+            className="rounded-xl border border-[#C9D8E4] bg-white px-4 py-2 text-sm font-bold text-[#06324A] transition hover:border-[#0A5278] hover:text-[#0A5278] disabled:opacity-40"
           >
             Previous
           </button>
@@ -542,7 +513,7 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
             type="button"
             onClick={nextPage}
             disabled={!nextCursor || busy}
-            className="rounded-xl bg-[#F26A21] px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+            className="rounded-xl bg-[#0A5278] px-4 py-2 text-sm font-black text-white transition hover:bg-[#063E5E] disabled:opacity-40"
           >
             Next
           </button>
@@ -563,6 +534,6 @@ export function LargeTableClient({ config }: { config: LargeTableConfig }) {
           await action();
         }}
       />
-    </PageShell>
+    </div>
   );
 }
