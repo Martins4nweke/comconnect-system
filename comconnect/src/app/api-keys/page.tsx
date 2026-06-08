@@ -41,6 +41,113 @@ type CurrentContext = {
   dev_fallback?: boolean;
 };
 
+const apiScopeOptions = [
+  {
+    scope: "participants:read",
+    label: "Read participants",
+    description: "Allow external systems to list/search participants.",
+    group: "Participants",
+  },
+  {
+    scope: "participants:write",
+    label: "Create participants",
+    description: "Allow external systems to create participant records.",
+    group: "Participants",
+  },
+  {
+    scope: "messages:read",
+    label: "Read messages",
+    description: "Reserved for future message library reading.",
+    group: "Messages",
+  },
+  {
+    scope: "messages:write",
+    label: "Send/accept messages",
+    description:
+      "Allow external systems to create app messages or queue push/SMS/voice/WhatsApp through guarded workflows.",
+    group: "Messages",
+  },
+  {
+    scope: "schedules:read",
+    label: "Read schedules",
+    description: "Reserved for future schedule reading.",
+    group: "Schedules",
+  },
+  {
+    scope: "schedules:write",
+    label: "Create schedules",
+    description: "Allow external systems to create guarded communication schedules.",
+    group: "Schedules",
+  },
+  {
+    scope: "delivery_logs:read",
+    label: "Read delivery logs",
+    description: "Allow external systems to read scoped delivery outcomes.",
+    group: "Monitoring",
+  },
+  {
+    scope: "replies:read",
+    label: "Read replies/help requests",
+    description: "Allow external systems to read scoped reply/help-request records.",
+    group: "Monitoring",
+  },
+  {
+    scope: "webhooks:read",
+    label: "Read webhooks",
+    description: "Reserved for future webhook configuration reading.",
+    group: "Webhooks",
+  },
+  {
+    scope: "webhooks:write",
+    label: "Test/manage webhooks",
+    description: "Allow external systems to test configured webhook endpoints.",
+    group: "Webhooks",
+  },
+];
+
+const scopePresets = [
+  {
+    name: "Read-only",
+    description: "Safe monitoring and participant lookup.",
+    scopes: ["participants:read", "delivery_logs:read", "replies:read"],
+  },
+  {
+    name: "Participant management",
+    description: "Read and create participants, plus monitoring.",
+    scopes: [
+      "participants:read",
+      "participants:write",
+      "delivery_logs:read",
+      "replies:read",
+    ],
+  },
+  {
+    name: "Messaging integration",
+    description: "Create participants, schedules and message requests.",
+    scopes: [
+      "participants:read",
+      "participants:write",
+      "messages:write",
+      "schedules:write",
+      "delivery_logs:read",
+      "replies:read",
+    ],
+  },
+  {
+    name: "Full integration",
+    description: "All currently supported external API permissions.",
+    scopes: [
+      "participants:read",
+      "participants:write",
+      "messages:write",
+      "schedules:write",
+      "delivery_logs:read",
+      "replies:read",
+      "webhooks:write",
+    ],
+  },
+];
+
 const defaultScopes = ["participants:read", "delivery_logs:read"];
 
 function formatDate(value?: string | null) {
@@ -51,6 +158,12 @@ function formatDate(value?: string | null) {
   if (Number.isNaN(date.getTime())) return "—";
 
   return date.toLocaleString();
+}
+
+function uniqueScopes(scopes: string[]) {
+  return Array.from(new Set(scopes)).filter((scope) =>
+    apiScopeOptions.some((option) => option.scope === scope)
+  );
 }
 
 function AccessMessage({
@@ -92,6 +205,7 @@ export default function ApiKeysPage() {
 
   const [apiKeys, setApiKeys] = useState<ApiKeyRow[]>([]);
   const [name, setName] = useState("");
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(defaultScopes);
   const [createdKey, setCreatedKey] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -107,6 +221,39 @@ export default function ApiKeysPage() {
       permission: "api:manage",
     });
   }, [context?.organisation_role, context?.project_role]);
+
+  const groupedScopes = useMemo(() => {
+    return apiScopeOptions.reduce<Record<string, typeof apiScopeOptions>>(
+      (groups, option) => {
+        if (!groups[option.group]) groups[option.group] = [];
+        groups[option.group].push(option);
+        return groups;
+      },
+      {}
+    );
+  }, []);
+
+  function toggleScope(scope: string) {
+    setSelectedScopes((current) => {
+      if (current.includes(scope)) {
+        return current.filter((item) => item !== scope);
+      }
+
+      return uniqueScopes([...current, scope]);
+    });
+  }
+
+  function applyPreset(scopes: string[]) {
+    setSelectedScopes(uniqueScopes(scopes));
+  }
+
+  function selectAllScopes() {
+    setSelectedScopes(apiScopeOptions.map((option) => option.scope));
+  }
+
+  function clearScopes() {
+    setSelectedScopes([]);
+  }
 
   async function loadContextAndApiKeys() {
     setContextLoading(true);
@@ -218,6 +365,12 @@ export default function ApiKeysPage() {
         throw new Error("Enter a name for this API key.");
       }
 
+      const cleanScopes = uniqueScopes(selectedScopes);
+
+      if (cleanScopes.length === 0) {
+        throw new Error("Select at least one API scope.");
+      }
+
       const res = await fetch("/api/api-keys", {
         method: "POST",
         headers: {
@@ -225,7 +378,7 @@ export default function ApiKeysPage() {
         },
         body: JSON.stringify({
           name: cleanName,
-          scopes: defaultScopes,
+          scopes: cleanScopes,
         }),
       });
 
@@ -238,6 +391,7 @@ export default function ApiKeysPage() {
       setCreatedKey(json.data?.key ?? "");
       setMessage(json.data?.message ?? "API key created.");
       setName("");
+      setSelectedScopes(defaultScopes);
       await loadApiKeys();
     } catch (err: any) {
       setError(err?.message ?? "Failed to create API key.");
@@ -398,8 +552,8 @@ export default function ApiKeysPage() {
               </h1>
               <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-white/80">
                 Create, copy once, revoke and delete organisation-scoped API
-                keys for approved integrations. API keys do not bypass
-                subscription, wallet or paid-channel rules.
+                keys for approved integrations. Select only the scopes each
+                integration needs.
               </p>
             </div>
 
@@ -459,7 +613,7 @@ export default function ApiKeysPage() {
           </section>
         ) : null}
 
-        <section className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+        <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
               Create API key
@@ -478,19 +632,122 @@ export default function ApiKeysPage() {
               className="mt-2 w-full rounded-2xl border border-[#C9D8E4] bg-white px-4 py-3 text-sm font-bold text-[#06324A] outline-none focus:border-[#0A5278]"
             />
 
-            <div className="mt-4 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4">
+            <div className="mt-5 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                    Scope presets
+                  </p>
+                  <p className="mt-1 text-xs font-bold leading-5 text-[#536271]">
+                    Choose a preset, then adjust individual permissions below.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllScopes}
+                    className="rounded-full border border-[#C9D8E4] bg-white px-3 py-2 text-xs font-black text-[#06324A] hover:bg-[#EAF2F8]"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearScopes}
+                    className="rounded-full border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700 hover:bg-red-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                {scopePresets.map((preset) => (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() => applyPreset(preset.scopes)}
+                    className="rounded-2xl border border-[#C9D8E4] bg-white px-4 py-3 text-left hover:bg-[#F7FBFD]"
+                  >
+                    <span className="block text-sm font-black text-[#06324A]">
+                      {preset.name}
+                    </span>
+                    <span className="mt-1 block text-xs font-bold leading-5 text-[#536271]">
+                      {preset.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {Object.entries(groupedScopes).map(([group, options]) => (
+                <div
+                  key={group}
+                  className="rounded-2xl border border-[#C9D8E4] bg-white p-4"
+                >
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+                    {group}
+                  </p>
+
+                  <div className="mt-3 grid gap-2">
+                    {options.map((option) => {
+                      const checked = selectedScopes.includes(option.scope);
+
+                      return (
+                        <label
+                          key={option.scope}
+                          className={[
+                            "flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3",
+                            checked
+                              ? "border-[#0A5278] bg-[#EAF2F8]"
+                              : "border-[#C9D8E4] bg-white",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleScope(option.scope)}
+                            className="mt-1 h-4 w-4"
+                          />
+                          <span>
+                            <span className="block text-sm font-black text-[#06324A]">
+                              {option.label}
+                            </span>
+                            <code className="mt-1 block text-xs font-black text-[#0A5278]">
+                              {option.scope}
+                            </code>
+                            <span className="mt-1 block text-xs font-bold leading-5 text-[#536271]">
+                              {option.description}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
-                Default scopes
+                Selected scopes
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {defaultScopes.map((scope) => (
-                  <span
-                    key={scope}
-                    className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#06324A]"
-                  >
-                    {scope}
+                {selectedScopes.length === 0 ? (
+                  <span className="text-sm font-bold text-red-700">
+                    No scopes selected.
                   </span>
-                ))}
+                ) : (
+                  selectedScopes.map((scope) => (
+                    <span
+                      key={scope}
+                      className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#06324A]"
+                    >
+                      {scope}
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 
@@ -637,9 +894,10 @@ export default function ApiKeysPage() {
           </p>
           <p className="mt-3 text-sm font-bold leading-6 text-[#536271]">
             Revoking is safer than deleting because it keeps the record for
-            audit history. This page manages API keys only. API-triggered
-            sending will be added later and must still pass subscription,
-            wallet, channel enablement and billing guard checks.
+            audit history. Give each API key only the scopes needed by that
+            integration. App messages can be created without wallet deduction,
+            but push, SMS, voice and WhatsApp must remain controlled by
+            ComConnect billing, wallet and provider safeguards.
           </p>
 
           <div className="mt-5 flex flex-wrap gap-3">
