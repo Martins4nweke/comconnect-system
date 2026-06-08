@@ -151,36 +151,34 @@ const rules = [
   "External SMS, voice and WhatsApp sending enters the existing schedule/sender flow, not direct provider calls.",
 ];
 
-const channelRules = [
+const testingRequirements = [
   {
-    channel: "app",
-    mode: "App message published",
-    explanation:
-      "Creates an app_messages row for participant app access. This is the only non-wallet channel.",
+    title: "App message test",
+    requirement:
+      "The participant must exist in ComConnect and must log into the Participant App. The API sends using participant_id or participant_code.",
+    note:
+      "This is the cheapest and safest test because it publishes to app_messages and does not use wallet-funded channels.",
   },
   {
-    channel: "push",
-    mode: "Queued for push",
-    explanation:
-      "Creates a push_notification_queue row. It does not directly call Expo inside the external API route.",
+    title: "SMS, WhatsApp and voice test",
+    requirement:
+      "The participant must exist in ComConnect and must have a valid phone_number on their participant record.",
+    note:
+      "The API does not send to random phone numbers. It queues the message for guarded ComConnect sending using the registered participant.",
   },
   {
-    channel: "sms",
-    mode: "Queued for guarded sending",
-    explanation:
-      "Creates a communication_schedules row. Existing sender checks wallet, channel enablement and delivery logs.",
+    title: "Push notification test",
+    requirement:
+      "The participant must exist, install/login to the Participant App, and have a registered device/push token.",
+    note:
+      "Push is treated as a controlled channel. The external API queues it; it does not directly call Expo from the route.",
   },
   {
-    channel: "voice",
-    mode: "Queued for guarded sending",
-    explanation:
-      "Creates a communication_schedules row. Existing sender handles voice provider call and billing guard.",
-  },
-  {
-    channel: "whatsapp",
-    mode: "Queued for guarded sending",
-    explanation:
-      "Creates a communication_schedules row. Existing sender/provider flow should handle WhatsApp later.",
+    title: "No raw phone-number-only sending",
+    requirement:
+      "External API message sending requires participant_id or participant_code.",
+    note:
+      "This protects consent, project scoping, audit logs, delivery history and billing controls.",
   },
 ];
 
@@ -194,36 +192,124 @@ const examples = [
     code: `GET /api/external/me`,
   },
   {
+    title: "Create test participant first",
+    code: `POST /api/external/participants
+{
+  "project_id": "project-uuid",
+  "participant_code": "TEST_001",
+  "phone_number": "+27720000000",
+  "first_name": "Test",
+  "last_name": "User",
+  "preferred_language": "en"
+}`,
+  },
+  {
     title: "Read participants",
     code: `GET /api/external/participants?limit=10&offset=0`,
   },
   {
-    title: "Create participant",
-    code: `POST /api/external/participants`,
-  },
-  {
-    title: "Send app message",
+    title: "JSON app message test",
     code: `POST /api/external/messages/send
 {
   "project_id": "project-uuid",
-  "participant_code": "EXT_TEST_002",
+  "participant_code": "TEST_001",
   "requested_channel": "app",
   "send_now": true,
-  "message_title": "App message",
-  "message_body": "This appears in the participant app."
+  "message_code": "EXT_APP_001",
+  "message_title": "App message test",
+  "message_body": "This message will appear inside the participant app.",
+  "priority": "normal"
 }`,
   },
   {
-    title: "Queue SMS, voice or WhatsApp",
+    title: "JSON SMS test",
     code: `POST /api/external/messages/send
 {
   "project_id": "project-uuid",
-  "participant_code": "EXT_TEST_002",
+  "participant_code": "TEST_001",
   "requested_channel": "sms",
   "send_now": true,
-  "message_title": "SMS message",
-  "message_body": "This is queued for guarded ComConnect sending."
+  "message_code": "EXT_SMS_001",
+  "message_title": "SMS test",
+  "message_body": "This SMS is queued for guarded ComConnect sending.",
+  "priority": "normal",
+  "respect_quiet_time": true
 }`,
+  },
+  {
+    title: "JSON WhatsApp test",
+    code: `POST /api/external/messages/send
+{
+  "project_id": "project-uuid",
+  "participant_code": "TEST_001",
+  "requested_channel": "whatsapp",
+  "send_now": true,
+  "message_code": "EXT_WA_001",
+  "message_title": "WhatsApp test",
+  "message_body": "This WhatsApp message is queued for guarded ComConnect sending.",
+  "priority": "normal",
+  "respect_quiet_time": true
+}`,
+  },
+  {
+    title: "JSON voice test",
+    code: `POST /api/external/messages/send
+{
+  "project_id": "project-uuid",
+  "participant_code": "TEST_001",
+  "requested_channel": "voice",
+  "send_now": true,
+  "message_code": "EXT_VOICE_001",
+  "message_title": "Voice test",
+  "message_body": "This voice call is queued for guarded ComConnect sending.",
+  "priority": "normal",
+  "respect_quiet_time": true
+}`,
+  },
+  {
+    title: "Node.js example",
+    code: `const response = await fetch("https://your-comconnect-domain.com/api/external/messages/send", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: "Bearer cc_live_your_api_key"
+  },
+  body: JSON.stringify({
+    project_id: "project-uuid",
+    participant_code: "TEST_001",
+    requested_channel: "app",
+    send_now: true,
+    message_title: "App message test",
+    message_body: "This message will appear inside the participant app.",
+    priority: "normal"
+  })
+});
+
+const result = await response.json();
+console.log(result);`,
+  },
+  {
+    title: "PowerShell example",
+    code: `$API_KEY = "cc_live_your_api_key"
+
+$body = @{
+  project_id = "project-uuid"
+  participant_code = "TEST_001"
+  requested_channel = "app"
+  send_now = $true
+  message_title = "App message test"
+  message_body = "This message will appear inside the participant app."
+  priority = "normal"
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod \`
+  -Uri "https://your-comconnect-domain.com/api/external/messages/send" \`
+  -Method POST \`
+  -Headers @{
+    Authorization = "Bearer $API_KEY"
+    "Content-Type" = "application/json"
+  } \`
+  -Body $body`,
   },
 ];
 
@@ -495,32 +581,38 @@ export default function AppApiPage() {
         </section>
 
         <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
-            Channel behaviour
-          </p>
-          <h2 className="mt-3 text-2xl font-black text-[#06324A]">
-            How external message send is processed
-          </h2>
+  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+    Testing requirements
+  </p>
+  <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+    Messages are sent to registered participants
+  </h2>
+  <p className="mt-3 max-w-4xl text-sm font-bold leading-6 text-[#536271]">
+    ComConnect external API does not support raw phone-number-only sending in
+    this version. Create or select a registered participant first, then send
+    using participant_code or participant_id. This keeps consent, project
+    scoping, delivery logs, wallet checks and audit trails intact.
+  </p>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-            {channelRules.map((rule) => (
-              <div
-                key={rule.channel}
-                className="rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4"
-              >
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0A5278]">
-                  {rule.channel}
-                </p>
-                <h3 className="mt-2 text-sm font-black text-[#06324A]">
-                  {rule.mode}
-                </h3>
-                <p className="mt-2 text-xs font-bold leading-5 text-[#536271]">
-                  {rule.explanation}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
+  <div className="mt-5 grid gap-3 md:grid-cols-2">
+    {testingRequirements.map((item) => (
+      <div
+        key={item.title}
+        className="rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4"
+      >
+        <h3 className="text-sm font-black text-[#06324A]">
+          {item.title}
+        </h3>
+        <p className="mt-2 text-xs font-bold leading-5 text-[#536271]">
+          {item.requirement}
+        </p>
+        <p className="mt-2 rounded-xl bg-white px-3 py-2 text-xs font-bold leading-5 text-[#0A5278]">
+          {item.note}
+        </p>
+      </div>
+    ))}
+  </div>
+</section>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
