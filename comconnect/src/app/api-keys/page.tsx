@@ -73,12 +73,28 @@ const apiScopeOptions = [
     description: "Reserved for future schedule reading.",
     group: "Schedules",
   },
-  {
-    scope: "schedules:write",
-    label: "Create schedules",
-    description: "Allow external systems to create guarded communication schedules.",
-    group: "Schedules",
-  },
+  
+{
+  scope: "schedules:write",
+  label: "Create schedules",
+  description: "Allow external systems to create guarded communication schedules.",
+  group: "Schedules",
+},
+
+{
+  scope: "schedules:read",
+  label: "Read schedules",
+  description: "Allow external systems to read scoped communication schedules.",
+  group: "Schedules",
+},
+
+{
+  scope: "schedules:read",
+  label: "Read schedules",
+  description: "Allow external systems to read scoped communication schedules.",
+  group: "Schedules",
+},
+
   {
     scope: "delivery_logs:read",
     label: "Read delivery logs",
@@ -105,6 +121,7 @@ const apiScopeOptions = [
   },
 ];
 
+
 const scopePresets = [
   {
     name: "Read-only",
@@ -128,6 +145,7 @@ const scopePresets = [
       "participants:read",
       "participants:write",
       "messages:write",
+      "schedules:read",
       "schedules:write",
       "delivery_logs:read",
       "replies:read",
@@ -140,6 +158,7 @@ const scopePresets = [
       "participants:read",
       "participants:write",
       "messages:write",
+      "schedules:read",
       "schedules:write",
       "delivery_logs:read",
       "replies:read",

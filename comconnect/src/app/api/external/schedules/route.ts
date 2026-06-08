@@ -24,6 +24,14 @@ function boolValue(value: unknown, fallback: boolean) {
   return fallback;
 }
 
+function numberParam(value: string | null, fallback: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) return fallback;
+
+  return parsed;
+}
+
 function normaliseAllowedChannels(value: unknown) {
   if (!Array.isArray(value)) return ["app", "sms", "voice"];
 
@@ -31,7 +39,9 @@ function normaliseAllowedChannels(value: unknown) {
     .map((item) => cleanText(item).toLowerCase())
     .filter((item) => ALLOWED_CHANNELS.has(item));
 
-  return channels.length > 0 ? Array.from(new Set(channels)) : ["app", "sms", "voice"];
+  return channels.length > 0
+    ? Array.from(new Set(channels))
+    : ["app", "sms", "voice"];
 }
 
 function safeSchedule(row: any) {
@@ -95,7 +105,9 @@ async function getParticipant(params: {
 }) {
   let query = supabaseAdmin
     .from("participants")
-    .select("id, organisation_id, project_id, participant_code, phone_number, status, archived_at")
+    .select(
+      "id, organisation_id, project_id, participant_code, phone_number, status, archived_at"
+    )
     .eq("organisation_id", params.organisationId)
     .eq("project_id", params.projectId)
     .is("archived_at", null)
@@ -116,6 +128,173 @@ async function getParticipant(params: {
   }
 
   return data;
+}
+
+export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
+
+  const auth = await authenticateExternalApiKey({
+    req,
+    requiredScope: "schedules:read",
+  });
+
+  if (auth.ok === false) {
+    return fail(auth.error, auth.status);
+  }
+
+  const url = new URL(req.url);
+
+  const requestedProjectId = cleanText(url.searchParams.get("project_id"));
+  const participantId = cleanText(url.searchParams.get("participant_id"));
+  const participantCode = cleanText(url.searchParams.get("participant_code"));
+  const status = cleanText(url.searchParams.get("status"));
+  const requestedChannel = cleanText(url.searchParams.get("requested_channel"));
+  const messageCode = cleanText(url.searchParams.get("message_code"));
+  const sourceType = cleanText(url.searchParams.get("source_type"));
+
+  const limit = Math.min(
+    Math.max(numberParam(url.searchParams.get("limit"), 50), 1),
+    200
+  );
+
+  const offset = Math.max(numberParam(url.searchParams.get("offset"), 0), 0);
+
+  const effectiveProjectId = auth.projectId || requestedProjectId || "";
+
+  try {
+    let query = supabaseAdmin
+      .from("communication_schedules")
+      .select("*", { count: "exact" })
+      .eq("organisation_id", auth.organisationId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (effectiveProjectId) {
+      query = query.eq("project_id", effectiveProjectId);
+    }
+
+    if (participantId) {
+      query = query.eq("participant_id", participantId);
+    }
+
+    if (participantCode) {
+      query = query.eq("participant_code", participantCode);
+    }
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    if (requestedChannel) {
+      query = query.eq("requested_channel", requestedChannel);
+    }
+
+    if (messageCode) {
+      query = query.eq("message_code", messageCode);
+    }
+
+    if (sourceType) {
+      query = query.eq("source_type", sourceType);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      await logApiUsage({
+        organisationId: auth.organisationId,
+        projectId: auth.projectId || effectiveProjectId || null,
+        apiKeyId: auth.apiKey.id,
+        endpoint: "/api/external/schedules",
+        method: "GET",
+        statusCode: 500,
+        durationMs: Date.now() - startedAt,
+        requestSource: "external_api",
+        paidChannel: false,
+        errorMessage: error.message,
+        metadata: {
+          action: "external_list_schedules",
+          result: "failed",
+          key_prefix: auth.apiKey.key_prefix,
+          project_id: effectiveProjectId || null,
+        },
+      });
+
+      return fail(error.message, 500);
+    }
+
+    await logApiUsage({
+      organisationId: auth.organisationId,
+      projectId: auth.projectId || effectiveProjectId || null,
+      apiKeyId: auth.apiKey.id,
+      endpoint: "/api/external/schedules",
+      method: "GET",
+      statusCode: 200,
+      durationMs: Date.now() - startedAt,
+      requestSource: "external_api",
+      paidChannel: false,
+      metadata: {
+        action: "external_list_schedules",
+        result: "success",
+        key_prefix: auth.apiKey.key_prefix,
+        project_id: effectiveProjectId || null,
+        status: status || null,
+        requested_channel: requestedChannel || null,
+        message_code: messageCode || null,
+        source_type: sourceType || null,
+        limit,
+        offset,
+        returned: data?.length ?? 0,
+      },
+    });
+
+    return ok({
+      schedules: (data ?? []).map(safeSchedule),
+      pagination: {
+        limit,
+        offset,
+        returned: data?.length ?? 0,
+        total: count ?? 0,
+        has_more: offset + (data?.length ?? 0) < (count ?? 0),
+      },
+      filters: {
+        project_id: effectiveProjectId || null,
+        participant_id: participantId || null,
+        participant_code: participantCode || null,
+        status: status || null,
+        requested_channel: requestedChannel || null,
+        message_code: messageCode || null,
+        source_type: sourceType || null,
+      },
+      scope: {
+        organisation_id: auth.organisationId,
+        api_key_project_id: auth.projectId,
+        requested_project_id: requestedProjectId || null,
+        effective_project_id: effectiveProjectId || null,
+      },
+      message:
+        "Schedules returned using external API key scope. This route is read-only.",
+    });
+  } catch (error: any) {
+    await logApiUsage({
+      organisationId: auth.organisationId,
+      projectId: auth.projectId,
+      apiKeyId: auth.apiKey.id,
+      endpoint: "/api/external/schedules",
+      method: "GET",
+      statusCode: 500,
+      durationMs: Date.now() - startedAt,
+      requestSource: "external_api",
+      paidChannel: false,
+      errorMessage: error?.message ?? "Failed to load external schedules.",
+      metadata: {
+        action: "external_list_schedules",
+        result: "exception",
+        key_prefix: auth.apiKey.key_prefix,
+      },
+    });
+
+    return fail(error?.message ?? "Failed to load external schedules.", 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -161,7 +340,9 @@ export async function POST(req: NextRequest) {
     const timezone = cleanText(body?.timezone) || "Africa/Johannesburg";
 
     const metadata =
-      body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+      body?.metadata &&
+      typeof body.metadata === "object" &&
+      !Array.isArray(body.metadata)
         ? body.metadata
         : {};
 
@@ -223,7 +404,8 @@ export async function POST(req: NextRequest) {
         durationMs: Date.now() - startedAt,
         requestSource: "external_api",
         paidChannel: false,
-        errorMessage: "message_title, message_body or message_code is required.",
+        errorMessage:
+          "message_title, message_body or message_code is required.",
         metadata: {
           action: "external_create_schedule",
           result: "validation_failed",
@@ -233,7 +415,10 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return fail("message_title, message_body or message_code is required.", 400);
+      return fail(
+        "message_title, message_body or message_code is required.",
+        400
+      );
     }
 
     if (!scheduledFor || Number.isNaN(scheduledFor.getTime())) {
@@ -261,7 +446,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (requestedChannel && !ALLOWED_CHANNELS.has(requestedChannel)) {
-      return fail("requested_channel must be app, push, sms, voice or whatsapp.", 400);
+      return fail(
+        "requested_channel must be app, push, sms, voice or whatsapp.",
+        400
+      );
     }
 
     const projectAllowed = await ensureProjectBelongsToOrganisation({
@@ -330,7 +518,8 @@ export async function POST(req: NextRequest) {
         organisation_id: auth.organisationId,
         project_id: projectId,
         participant_id: participant.id,
-        participant_code: (participant.participant_code ?? participantCode) || null,
+        participant_code:
+          (participant.participant_code ?? participantCode) || null,
 
         message_code: messageCode || null,
         message_title: messageTitle || "External API message",
@@ -360,7 +549,9 @@ export async function POST(req: NextRequest) {
           created_from: "external_api",
           api_key_id: auth.apiKey.id,
           api_key_prefix: auth.apiKey.key_prefix,
-          participant_lookup: participantId ? "participant_id" : "participant_code",
+          participant_lookup: participantId
+            ? "participant_id"
+            : "participant_code",
         },
       })
       .select("*")
@@ -384,7 +575,8 @@ export async function POST(req: NextRequest) {
           key_prefix: auth.apiKey.key_prefix,
           project_id: projectId,
           participant_id: participant.id,
-          participant_code: participant.participant_code ?? participantCode ?? null,
+          participant_code:
+            participant.participant_code ?? participantCode ?? null,
         },
       });
 
@@ -408,7 +600,8 @@ export async function POST(req: NextRequest) {
         project_id: projectId,
         schedule_id: data.id,
         participant_id: participant.id,
-        participant_code: participant.participant_code ?? participantCode ?? null,
+        participant_code:
+          participant.participant_code ?? participantCode ?? null,
         requested_channel: requestedChannel || null,
         scheduled_for: scheduledFor.toISOString(),
       },
