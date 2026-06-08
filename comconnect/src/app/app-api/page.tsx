@@ -30,37 +30,37 @@ const apiModules = [
     title: "Participant API",
     description:
       "Read and create participants, manage participant identifiers, and connect participant records to organisation projects.",
-    status: "Partly ready",
+    status: "Ready",
   },
   {
     title: "Message API",
     description:
-      "Queue approved text, audio, video and education messages through ComConnect workflows.",
-    status: "Planned",
+      "Accept app, push, SMS, WhatsApp and voice message requests through controlled ComConnect workflows.",
+    status: "Ready",
   },
   {
     title: "Schedule API",
     description:
-      "Create scheduled communication tasks while respecting project rules, quiet time and billing restrictions.",
-    status: "Planned",
+      "Create scheduled communication tasks while respecting project rules, quiet time and guarded sending.",
+    status: "Ready",
   },
   {
     title: "Delivery Logs API",
     description:
       "Read delivery events for app messages, push notifications, SMS, WhatsApp and voice calls.",
-    status: "Planned",
+    status: "Ready",
   },
   {
     title: "Replies API",
     description:
-      "Read participant replies, help requests and structured responses from supported channels.",
-    status: "Planned",
+      "Read participant help requests and reply-like records from supported ComConnect workflows.",
+    status: "Ready",
   },
   {
     title: "Webhook API",
     description:
       "Manage and test delivery, reply, failed-message and billing events sent to approved webhook endpoints.",
-    status: "Planned",
+    status: "Ready",
   },
 ];
 
@@ -87,52 +87,52 @@ const externalEndpoints = [
     method: "POST",
     path: "/api/external/participants",
     scope: "participants:write",
-    status: "Planned",
+    status: "Ready",
     purpose: "Create a participant in an authorised organisation/project.",
     safety:
-      "Will create participant records only after table columns and project scoping are confirmed.",
+      "Creates participant records only. Does not send messages or touch wallet/provider routes.",
   },
   {
     method: "POST",
     path: "/api/external/messages/send",
     scope: "messages:write",
-    status: "Planned",
-    purpose: "Queue or send a message through ComConnect workflow.",
+    status: "Ready",
+    purpose: "Accept app, push, SMS, WhatsApp or voice message requests.",
     safety:
-      "Must not bypass billing. Should queue through existing scheduler/send-due flow, not directly call providers.",
+      "App is published to app messages. Push is queued. SMS, voice and WhatsApp are queued as guarded communication schedules.",
   },
   {
     method: "POST",
     path: "/api/external/schedules",
     scope: "schedules:write",
-    status: "Planned",
+    status: "Ready",
     purpose: "Create scheduled communication for authorised participants.",
     safety:
-      "Will create schedule rows only. Existing scheduler and billing guard should handle actual sending.",
+      "Creates schedule rows only. Existing ComConnect sender handles actual sending, billing, wallet checks and delivery logs.",
   },
   {
     method: "GET",
     path: "/api/external/delivery-logs",
     scope: "delivery_logs:read",
-    status: "Planned",
+    status: "Ready",
     purpose: "Read delivery outcomes for app, push, SMS, WhatsApp and voice.",
     safety:
-      "Read-only. Should be organisation/project scoped.",
+      "Read-only. Organisation/project scoped. Does not trigger sending or wallet deduction.",
   },
   {
     method: "GET",
     path: "/api/external/replies",
     scope: "replies:read",
-    status: "Planned",
-    purpose: "Read participant replies, HELP requests and structured responses.",
+    status: "Ready",
+    purpose: "Read participant help requests and reply-like records.",
     safety:
-      "Read-only. Should be organisation/project scoped.",
+      "Read-only. Currently returns records from help_requests under the API key organisation/project scope.",
   },
   {
     method: "POST",
     path: "/api/external/webhooks/test",
     scope: "webhooks:write",
-    status: "Planned",
+    status: "Ready",
     purpose: "Send a harmless test event to a configured webhook endpoint.",
     safety:
       "Sends only a test webhook payload. Does not send participant messages or deduct wallet.",
@@ -143,10 +143,45 @@ const rules = [
   "API access is organisation-scoped and may also be project-scoped.",
   "API keys are controlled by plan, role, permission and key scope.",
   "API keys must never bypass subscription, wallet or paid-channel billing rules.",
+  "Only in-app app messages are treated as non-wallet messages.",
+  "Push, SMS, voice calls and WhatsApp are controlled channels and must be guarded.",
   "SMS, voice calls and WhatsApp require an active wallet and enabled channel.",
   "Subscription gives access to ComConnect dashboard and Participant app.",
   "Trial access supports platform and Participant app testing only.",
-  "External message sending should enter the existing queue/scheduler flow, not call providers directly.",
+  "External SMS, voice and WhatsApp sending enters the existing schedule/sender flow, not direct provider calls.",
+];
+
+const channelRules = [
+  {
+    channel: "app",
+    mode: "App message published",
+    explanation:
+      "Creates an app_messages row for participant app access. This is the only non-wallet channel.",
+  },
+  {
+    channel: "push",
+    mode: "Queued for push",
+    explanation:
+      "Creates a push_notification_queue row. It does not directly call Expo inside the external API route.",
+  },
+  {
+    channel: "sms",
+    mode: "Queued for guarded sending",
+    explanation:
+      "Creates a communication_schedules row. Existing sender checks wallet, channel enablement and delivery logs.",
+  },
+  {
+    channel: "voice",
+    mode: "Queued for guarded sending",
+    explanation:
+      "Creates a communication_schedules row. Existing sender handles voice provider call and billing guard.",
+  },
+  {
+    channel: "whatsapp",
+    mode: "Queued for guarded sending",
+    explanation:
+      "Creates a communication_schedules row. Existing sender/provider flow should handle WhatsApp later.",
+  },
 ];
 
 const examples = [
@@ -161,6 +196,34 @@ const examples = [
   {
     title: "Read participants",
     code: `GET /api/external/participants?limit=10&offset=0`,
+  },
+  {
+    title: "Create participant",
+    code: `POST /api/external/participants`,
+  },
+  {
+    title: "Send app message",
+    code: `POST /api/external/messages/send
+{
+  "project_id": "project-uuid",
+  "participant_code": "EXT_TEST_002",
+  "requested_channel": "app",
+  "send_now": true,
+  "message_title": "App message",
+  "message_body": "This appears in the participant app."
+}`,
+  },
+  {
+    title: "Queue SMS, voice or WhatsApp",
+    code: `POST /api/external/messages/send
+{
+  "project_id": "project-uuid",
+  "participant_code": "EXT_TEST_002",
+  "requested_channel": "sms",
+  "send_now": true,
+  "message_title": "SMS message",
+  "message_body": "This is queued for guarded ComConnect sending."
+}`,
   },
 ];
 
@@ -330,12 +393,13 @@ export default function AppApiPage() {
                 Current stage
               </p>
               <p className="mt-2 text-xl font-black text-white">
-                Authentication and participant read ready
+                External API routes ready
               </p>
               <p className="mt-2 text-xs font-semibold leading-5 text-white/70">
-                API key testing and participant read access are working. Sending
-                endpoints will be added only through the existing guarded
-                ComConnect workflow.
+                Authentication, participants, schedules, delivery logs, replies,
+                webhook testing and message acceptance routes are working.
+                Paid/controlled channels remain queued through ComConnect
+                safeguards.
               </p>
             </div>
           </div>
@@ -430,6 +494,34 @@ export default function AppApiPage() {
           </div>
         </section>
 
+        <section className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
+            Channel behaviour
+          </p>
+          <h2 className="mt-3 text-2xl font-black text-[#06324A]">
+            How external message send is processed
+          </h2>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+            {channelRules.map((rule) => (
+              <div
+                key={rule.channel}
+                className="rounded-2xl border border-[#C9D8E4] bg-[#EAF2F8] p-4"
+              >
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0A5278]">
+                  {rule.channel}
+                </p>
+                <h3 className="mt-2 text-sm font-black text-[#06324A]">
+                  {rule.mode}
+                </h3>
+                <p className="mt-2 text-xs font-bold leading-5 text-[#536271]">
+                  {rule.explanation}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-[2rem] border border-[#C9D8E4] bg-white p-6 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0A5278]">
@@ -468,7 +560,7 @@ export default function AppApiPage() {
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0A5278]">
                     {example.title}
                   </p>
-                  <code className="mt-2 block overflow-x-auto rounded-xl bg-white px-3 py-2 text-xs font-black text-[#06324A]">
+                  <code className="mt-2 block whitespace-pre-wrap break-words rounded-xl bg-white px-3 py-2 text-xs font-black text-[#06324A]">
                     {example.code}
                   </code>
                 </div>
@@ -498,16 +590,18 @@ export default function AppApiPage() {
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-orange-200 bg-orange-50 p-6 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">
-            Implementation warning
+        <section className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">
+            Implementation status
           </p>
-          <p className="mt-3 text-sm font-bold leading-6 text-orange-800">
-            Endpoints marked Planned are documented for build direction only.
-            They should not be advertised as active until their backend routes,
-            scoping checks, usage logging and billing safeguards are tested.
-            Message sending must enter the existing ComConnect queue/scheduler
-            flow and must not bypass wallet deduction or provider delivery logs.
+          <p className="mt-3 text-sm font-bold leading-6 text-emerald-800">
+            External API authentication, participant read/create, delivery log
+            read, replies read, webhook testing, schedule creation and message
+            acceptance are implemented. App messages are published to the
+            participant app. Push is queued. SMS, voice and WhatsApp are
+            accepted into controlled ComConnect schedules so billing, wallet,
+            provider delivery, retries and logs remain under the existing
+            guarded sender flow.
           </p>
         </section>
       </div>
